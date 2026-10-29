@@ -106,7 +106,7 @@ class App(tk.Tk):
         ttk.Button(gen, text="…", width=3, command=self.pick_out_dir).grid(row=1, column=2)
         row2 = ttk.Frame(gen)
         row2.grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        ttk.Label(row2, text="Протоколов за раз (1–100):").pack(side="left")
+        ttk.Label(row2, text="Протоколов в одном документе (1–100):").pack(side="left")
         self.batch = tk.IntVar(value=self.settings["batch"])
         ttk.Spinbox(row2, from_=1, to=100, width=5, textvariable=self.batch).pack(side="left")
         ttk.Label(row2, text="  начиная со строки списка:").pack(side="left")
@@ -278,7 +278,7 @@ class App(tk.Tk):
         self.config(cursor="watch")
         self.update()
         try:
-            paths = protocol.generate(chs, self.out_dir.get(), tpl, self._int(self.digits, 4))
+            path = protocol.generate(chs, self.out_dir.get(), tpl, self._int(self.digits, 4))
         except Exception as e:  # noqa: BLE001
             messagebox.showerror("Ошибка создания протоколов", str(e))
             return
@@ -286,7 +286,8 @@ class App(tk.Tk):
             self.config(cursor="")
         if next_start is not None and next_start < len(self.channels):
             self.start.set(next_start + 1)
-        messagebox.showinfo("Готово", f"Создано протоколов: {len(paths)}\nПапка: {self.out_dir.get()}")
+        if messagebox.askyesno("Готово", f"Протоколов в документе: {len(chs)}\n{path}\n\nОткрыть документ?"):
+            os.startfile(path)
 
     def on_close(self):
         s = {"pip": self.pip_default.get(), "allowed": self.allowed_default.get(), "qm": self._int(self.qm, 20), "digits": self._int(self.digits, 4),

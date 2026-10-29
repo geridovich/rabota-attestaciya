@@ -110,16 +110,21 @@ def from_template(template, ch, digits=4):
     return doc
 
 
-def builtin(ch, digits=4):
-    """Временный протокол, пока нет шаблона заказчика."""
-    v = channel_fields(ch, digits)
+def new_document():
     doc = Document()
     st = doc.styles["Normal"]
     st.font.name = "Times New Roman"
     st.font.size = Pt(12)
+    return doc
+
+
+def builtin(ch, digits=4, doc=None):
+    """Временный протокол, пока нет шаблона заказчика."""
+    v = channel_fields(ch, digits)
+    doc = doc or new_document()
     h = doc.add_paragraph()
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    h.add_run("ПРОТОКОЛ\nаттестации измерительного канала").bold = True
+    h.add_run(f"ПРОТОКОЛ № {v['№']}\nаттестации измерительного канала").bold = True
 
     info = doc.add_table(rows=0, cols=2)
     info.style = "Table Grid"
@@ -164,18 +169,52 @@ def safe_name(s):
     return s or "канал"
 
 
-def generate(channels, out_dir, template=None, digits=4):
-    """Создать по протоколу на канал. Возвращает список путей."""
-    os.makedirs(out_dir, exist_ok=True)
-    paths = []
+def _append_body(dst, src):
+    """Перенести содержимое документа src в конец dst (без свойств раздела)."""
+    import copy
+    body = dst.element.body
+    sect = body.sectPr
+    for el in src.element.body.iterchildren():
+        if el.tag.endswith("}sectPr"):
+            continue
+        if sect is not None:
+            sect.addprevious(copy.deepcopy(el))
+        else:
+            body.append(copy.deepcopy(el))
+
+
+def build(channels, template=None, digits=4):
+    """Один документ: протоколы каналов подряд, каждый с новой страницы."""
+    master = None
     for ch in channels:
-        doc = from_template(template, ch, digits) if template else builtin(ch, digits)
-        base = safe_name(ch.kks or f"канал_{ch.num}")
-        path = os.path.join(out_dir, base + ".docx")
-        n = 2
-        while os.path.exists(path) and path in paths:
-            path = os.path.join(out_dir, f"{base}_{n}.docx")
-            n += 1
-        doc.save(path)
-        paths.append(path)
-    return paths
+        if template:
+            doc = from_template(template, ch, digits)
+            if master is None:
+                master = doc
+            else:
+                master.add_page_break()
+                _append_body(master, doc)
+        else:
+            if master is None:
+                master = new_document()
+            else:
+                master.add_page_break()
+            builtin(ch, digits, master)
+    return master
+
+
+def generate(channels, out_dir, template=None, digits=4):
+    """Создать один .docx со всеми протоколами. Возвращает путь к файлу."""
+    os.makedirs(out_dir, exist_ok=True)
+    first, last = channels[0], channels[-1]
+    name = "Протоколы"
+    if first.num and last.num:
+        name += f" №{first.num}" + (f"-{last.num}" if last is not first else "")
+    elif first.kks:
+        name += f" {first.kks}" + (f" - {last.kks}" if last is not first else "")
+    base = os.path.join(out_dir, safe_name(name))
+    path, n = base + ".docx", 2
+    while os.path.exists(path):
+        path, n = f"{base} ({n}).docx", n + 1
+    build(channels, template, digits).save(path)
+    return path
