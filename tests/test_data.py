@@ -64,6 +64,16 @@ class PasteTest(unittest.TestCase):
         self.assertEqual([p.input for p in ch.points], [4, 8, 12, 16, 20])
         self.assertEqual(ch.points[1].measured, [0.26])
 
+    def test_protocols_one_document(self):
+        from attest import protocol
+        chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW))
+        for c in chs:
+            data.calc_channel(c)
+        doc = protocol.build(chs)
+        heads = [p.text for p in doc.paragraphs if p.text.startswith("ПРОТОКОЛ")]
+        self.assertEqual(heads, ["ПРОТОКОЛ № 1", "ПРОТОКОЛ № 3"])
+        self.assertNotIn("{{", "".join(c.text for t in doc.tables for r in t.rows for c in r.cells))
+
     def test_paste_without_number(self):
         text = "\n".join(ln.split("\t", 1)[1] for ln in PASTE_NEG.strip("\n").split("\n"))
         ch = data.channels_from_rows(data.rows_from_text(text))[0]
