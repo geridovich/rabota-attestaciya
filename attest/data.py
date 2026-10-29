@@ -199,10 +199,20 @@ def rows_from_text(text):
             rows.append({col_letter(i + shift): c for i, c in enumerate(ln)})
         return rows
 
-    with_pct = _has_pct_column([[""] * shift + ln for ln in lines])
-    keys = SHORT_KEYS if with_pct else SHORT_KEYS[:-1]
-    low = high = None
+    # есть ли столбец «%», решаем отдельно для каждого канала
+    blocks, with_pct = [], []
     for ln in lines:
+        cells = [""] * shift + ln
+        if not blocks or (len(cells) > 1 and (cells[0] or cells[1])):
+            blocks.append([])
+        blocks[-1].append(cells)
+    for block in blocks:
+        flag = _has_pct_column(block)
+        with_pct += [flag] * len(block)
+
+    low = high = None
+    for ln, has_pct in zip(lines, with_pct):
+        keys = SHORT_KEYS if has_pct else SHORT_KEYS[:-1]
         cells = [""] * shift + ln
         row = {COLUMNS[k]: cells[i] for i, k in enumerate(keys) if i < len(cells)}
         row["_short"] = True
@@ -220,7 +230,7 @@ def rows_from_text(text):
             row[COLUMNS["output"]] = rest.pop(0)
             for i, v in enumerate(rest):
                 row[col_letter(col_index(COLUMNS["m1"]) + i)] = v
-        if not with_pct and low is not None and high != low and to_float(row.get(COLUMNS["output"])) is not None:
+        if not has_pct and low is not None and high != low and to_float(row.get(COLUMNS["output"])) is not None:
             row[COLUMNS["pct"]] = (to_float(row[COLUMNS["output"]]) - low) / (high - low) * 100.0
         rows.append(row)
     return rows

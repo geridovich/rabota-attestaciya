@@ -6,3 +6,4 @@ dist/
 settings.json
 Протоколы/
 build.log
+.venv32/

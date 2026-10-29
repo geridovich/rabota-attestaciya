@@ -7,7 +7,9 @@
 ## Скачать
 
 * [AttestIK.exe](https://github.com/geridovich/rabota-attestaciya/raw/main/release/AttestIK.exe) —
-  готовая программа для Windows, Python не нужен. Скачайте и запустите двойным щелчком.
+  готовая программа для Windows 7/8/10/11, 32- и 64-битных (сборка 32-битная,
+  поэтому запускается на обеих). Python не нужен, запуск двойным щелчком.
+  Окно подстраивается под экран ноутбука (от 1366×768) и масштаб Windows 125–150 %.
   Если Windows покажет «Система Windows защитила ваш компьютер», нажмите
   «Подробнее» → «Выполнить в любом случае».
 * [Образец протокола.docx](https://github.com/geridovich/rabota-attestaciya/raw/main/release/Образец%20протокола.docx)
@@ -16,7 +18,8 @@
 
 * `run.bat` — при первом запуске создаёт окружение Python и ставит
   зависимости, дальше просто открывает окно.
-* `build_exe.bat` — собирает `dist\AttestIK.exe`, который работает без Python.
+* `build_exe.bat` — собирает `dist\AttestIK.exe` 32-битным Python 3.8
+  (работает без Python на 32- и 64-битной Windows).
 
 ## Как пользоваться
 

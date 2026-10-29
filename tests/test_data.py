@@ -74,6 +74,11 @@ class PasteTest(unittest.TestCase):
         self.assertEqual(heads, ["ПРОТОКОЛ № 1", "ПРОТОКОЛ № 3"])
         self.assertNotIn("{{", "".join(c.text for t in doc.tables for r in t.rows for c in r.cells))
 
+    def test_mixed_layouts_in_one_paste(self):
+        chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW + PASTE_NEG))
+        self.assertEqual([p.xd for p in chs[2].points], [-50, 12.5, 75, 137.5, 200])
+        self.assertEqual([p.xd for p in chs[0].points], [0, 0.25, 0.5, 0.75, 1])
+
     def test_paste_without_number(self):
         text = "\n".join(ln.split("\t", 1)[1] for ln in PASTE_NEG.strip("\n").split("\n"))
         ch = data.channels_from_rows(data.rows_from_text(text))[0]
