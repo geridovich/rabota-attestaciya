@@ -7,3 +7,9 @@ settings.json
 Протоколы/
 build.log
 .venv32/
+.venv37/
+dist37/
+build37/
+distdir37/
+builddir37/
+build37.log
