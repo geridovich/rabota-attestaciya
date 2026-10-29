@@ -36,6 +36,19 @@ class CalcDTest(unittest.TestCase):
         # протокол: ПИП 0,1111 -> общая 0,14726947809414512
         self.assertAlmostEqual((0.1111 ** 2 + r.et_ik ** 2) ** 0.5, 0.14726947809414512, places=14)
 
+    def test_screenshot_values(self):
+        """Скрин CalcD: 0, 0.26, 0.5, 0.75, 1.01 по 20 раз; действительные 0..0.75, 1.01."""
+        vals = []
+        for v in (0, 0.26, 0.5, 0.75, 1.01):
+            vals += [v] * 20
+        r = calc(vals, [0, 0.25, 0.5, 0.75, 1.01], 20, 0)
+        self.assertEqual(repr(r.a1), "8.061976443914446e-06")
+        self.assertEqual(repr(r.a2), "8.061976443914099e-06")
+        self.assertEqual(repr(r.b1), "-0.003968004030988215")
+        self.assertEqual(repr(r.b2), "-0.003968004030988186")
+        self.assertEqual(repr(r.gh), "0.0007982154894964798")
+        self.assertEqual(repr(r.gl), "0.0007982154894964453")
+
     def test_constant_values(self):
         vals = []
         for v in (0, 0.26, 0.5, 0.75, 1.01):

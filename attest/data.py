@@ -151,13 +151,39 @@ def _close(a, b):
     return a is not None and b is not None and abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 
+def _has_pct_column(lines):
+    """Есть ли во вставке столбец «%» контрольной точки.
+
+    Жёлтые столбцы листа идут без «%» и входного сигнала: №, KKS, Наим.,
+    Нижн., Верхн., Ед., действительное, измерения. Если «%» есть, то за ним
+    стоит действительное значение (или вход 4..20 мА, а потом действительное),
+    и оно совпадает с нижн. + (верхн. - нижн.) * % / 100.
+    """
+    votes = total = 0
+    low = high = None
+    for cells in lines:
+        if len(cells) > 1 and (cells[0] or cells[1]):
+            low, high = to_float(cells[3]) if len(cells) > 3 else None, to_float(cells[4]) if len(cells) > 4 else None
+        if low is None or high is None or len(cells) < 8:
+            continue
+        pct = to_float(cells[6])
+        rest = [to_float(c) for c in cells[7:9]]
+        if pct is None or rest[0] is None:
+            continue
+        expected = (high - low) * pct / 100.0 + low
+        total += 1
+        if any(_close(v, expected) for v in rest):
+            votes += 1
+    return total > 0 and votes * 2 > total
+
+
 def rows_from_text(text):
     """Вставка из Excel (табуляция) -> строки {буква столбца: значение}.
 
     Поддерживаются два вида вставки:
       * целые строки листа (A..Y или с B) - столбцы берутся по своим местам;
       * выделенные (жёлтые) столбцы: №, KKS, Наименование, Нижн., Верхн., Ед.,
-        %, [входной сигнал], действительное значение, измерения 1..N.
+        [%, входной сигнал], действительное значение, измерения 1..N.
         Входной сигнал (4..20 мА) определяется и пропускается автоматически.
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -173,15 +199,17 @@ def rows_from_text(text):
             rows.append({col_letter(i + shift): c for i, c in enumerate(ln)})
         return rows
 
+    with_pct = _has_pct_column([[""] * shift + ln for ln in lines])
+    keys = SHORT_KEYS if with_pct else SHORT_KEYS[:-1]
     low = high = None
     for ln in lines:
         cells = [""] * shift + ln
-        row = {COLUMNS[k]: cells[i] for i, k in enumerate(SHORT_KEYS) if i < len(cells)}
+        row = {COLUMNS[k]: cells[i] for i, k in enumerate(keys) if i < len(cells)}
         row["_short"] = True
         if row.get(COLUMNS["kks"]) or row.get(COLUMNS["num"]):
             low = to_float(row.get(COLUMNS["low"])) or 0.0
             high = to_float(row.get(COLUMNS["high"])) or 0.0
-        rest = [to_float(c) for c in cells[len(SHORT_KEYS):]]
+        rest = [to_float(c) for c in cells[len(keys):]]
         while rest and rest[-1] is None:
             rest.pop()
         pct = to_float(row.get(COLUMNS["pct"]))
@@ -192,6 +220,8 @@ def rows_from_text(text):
             row[COLUMNS["output"]] = rest.pop(0)
             for i, v in enumerate(rest):
                 row[col_letter(col_index(COLUMNS["m1"]) + i)] = v
+        if not with_pct and low is not None and high != low and to_float(row.get(COLUMNS["output"])) is not None:
+            row[COLUMNS["pct"]] = (to_float(row[COLUMNS["output"]]) - low) / (high - low) * 100.0
         rows.append(row)
     return rows
 

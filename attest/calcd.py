@@ -92,6 +92,15 @@ def _div(a, b):
     return a / b
 
 
+def jsum(xs):
+    """Сумма как в Java: последовательно. sum() в Python 3.12+ компенсирует
+    ошибки округления и даёт другие последние знаки."""
+    total = 0.0
+    for x in xs:
+        total += x
+    return total
+
+
 def get_from_v(table, n, col):
     """func.getfromV: строка, начинающаяся с n, иначе предыдущая перед первой большей."""
     prev = ""
@@ -198,7 +207,7 @@ def calc(values, xd, qm, mode=0):
         xc = list(xs)
 
         def calc_dj():
-            am = sum(xs) / qm
+            am = jsum(xs) / qm
             s2 = 0.0
             for i in range(qm):
                 s2 += (xs[i] - am) ** 2
@@ -217,8 +226,8 @@ def calc(values, xd, qm, mode=0):
 
         x0 = xd[j]
         half = qm // 2
-        am_p = sum(xc[:half]) * 2.0 / qm
-        am_m = sum(xc[half:]) * 2.0 / qm
+        am_p = jsum(xc[:half]) * 2.0 / qm
+        am_m = jsum(xc[half:]) * 2.0 / qm
         ds = ((am_p - x0) + (am_m - x0)) / 2.0
         # В CalcD сумма квадратов не накапливается: берутся только последние
         # элементы каждой половины. Повторяем как есть.

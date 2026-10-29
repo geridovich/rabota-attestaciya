@@ -23,8 +23,30 @@ PASTE_AM = (
     "\t\t\t\t\t\t100\t20\t1\t1,01\t\t\t\n"
 )
 
+# Ровно жёлтые столбцы листа (скрин 3): A..F, I, J - без «%» и входного сигнала;
+# объединённые ячейки A..F копируются только в первую строку канала
+PASTE_YELLOW = (
+    "1\t08HHA01CP001\tДавление опрессовки гор. №IА\t0\t1\tкгс/см²\t0\t0\n"
+    "\t\t\t\t\t\t0,25\t0,26\n"
+    "\t\t\t\t\t\t0,5\t0,5\n"
+    "\t\t\t\t\t\t0,75\t0,75\n"
+    "\t\t\t\t\t\t1\t1,01\n"
+    "3\t08HHL01DP001\tДавление воздуха к  гор. №IА\t0\t160\tкгс/м²\t0\t0\n"
+    "\t\t\t\t\t\t40\t40\n"
+    "\t\t\t\t\t\t80\t80\n"
+    "\t\t\t\t\t\t120\t120\n"
+    "\t\t\t\t\t\t160\t160\n"
+)
+
 
 class PasteTest(unittest.TestCase):
+    def test_yellow_columns_without_percent(self):
+        chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW))
+        self.assertEqual([c.kks for c in chs], ["08HHA01CP001", "08HHL01DP001"])
+        self.assertEqual([p.xd for p in chs[0].points], [0, 0.25, 0.5, 0.75, 1])
+        self.assertEqual([p.measured for p in chs[0].points], [[0], [0.26], [0.5], [0.75], [1.01]])
+        self.assertEqual([p.pct for p in chs[1].points], [0, 25, 50, 75, 100])
+
     def test_negative_range_several_measurements(self):
         chs = data.channels_from_rows(data.rows_from_text(PASTE_NEG))
         self.assertEqual(len(chs), 1)
