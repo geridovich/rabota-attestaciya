@@ -11,6 +11,8 @@ APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen
 SETTINGS = os.path.join(APP_DIR, "settings.json")
 DEFAULTS = {"pip": "", "allowed": "", "qm": 20, "digits": 4, "batch": 20, "template": "", "out_dir": os.path.join(APP_DIR, "Протоколы")}
 
+MAX_BATCH = 3000  # протоколов в одном документе
+
 COLS = (("num", "№", 35), ("kks", "KKS", 110), ("name", "Наименование", 200), ("range", "Диапазон", 90),
         ("gh", "gh", 65), ("gl", "gl", 65), ("et", "ЭТ ИК, %", 65), ("pip", "ПИП, %", 55),
         ("total", "Общая, %", 65), ("allowed", "Допуст., %", 65), ("verdict", "Результат", 70))
@@ -125,9 +127,9 @@ class App(tk.Tk):
         ttk.Button(gen, text="…", width=3, command=self.pick_out_dir).grid(row=1, column=2)
         row2 = ttk.Frame(gen)
         row2.grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        ttk.Label(row2, text="Протоколов в документе (1–100):").pack(side="left")
+        ttk.Label(row2, text="Протоколов в документе (1–3000):").pack(side="left")
         self.batch = tk.IntVar(value=self.settings["batch"])
-        ttk.Spinbox(row2, from_=1, to=100, width=5, textvariable=self.batch).pack(side="left")
+        ttk.Spinbox(row2, from_=1, to=3000, width=6, textvariable=self.batch).pack(side="left")
         ttk.Label(row2, text="  со строки списка:").pack(side="left")
         self.start = tk.IntVar(value=1)
         ttk.Spinbox(row2, from_=1, to=100000, width=7, textvariable=self.start).pack(side="left")
@@ -274,14 +276,14 @@ class App(tk.Tk):
         os.startfile(d)
 
     def generate(self):
-        batch = max(1, min(100, self._int(self.batch, 20)))
+        batch = max(1, min(MAX_BATCH, self._int(self.batch, 20)))
         start = max(1, self._int(self.start, 1)) - 1
         self._generate(self.channels[start:start + batch], start + batch)
 
     def generate_selected(self):
         sel = [self.channels[int(i)] for i in self.tree.selection()]
-        if len(sel) > 100:
-            messagebox.showwarning("Слишком много", "Выделите не больше 100 каналов.")
+        if len(sel) > MAX_BATCH:
+            messagebox.showwarning("Слишком много", f"Выделите не больше {MAX_BATCH} каналов.")
             return
         self._generate(sel, None)
 

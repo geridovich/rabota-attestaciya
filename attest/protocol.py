@@ -1,4 +1,5 @@
 """Создание Word-протоколов: по шаблону с метками {{...}} или встроенному образцу."""
+import copy
 import datetime
 import io
 import os
@@ -67,49 +68,56 @@ def _iter_paragraphs(container):
                 yield from _iter_paragraphs(cell)
 
 
-def _row_text(row):
-    return "".join(c.text for c in row.cells)
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+MARK_RE = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
 
-def _expand_point_rows(doc, ch, digits):
-    import copy
-    tables = list(doc.tables)
-    for t in tables:
-        for row in list(t.rows):
-            if POINT_MARK not in _row_text(row):
-                continue
-            tr = row._tr
-            anchor = tr
+def _fill_xml(el, values):
+    """Подставить метки во все абзацы элемента (работа прямо с XML - быстро)."""
+    for p in el.iter(W + "p"):
+        ts = list(p.iter(W + "t"))
+        text = "".join(t.text or "" for t in ts)
+        if "{{" not in text:
+            continue
+        new = MARK_RE.sub(lambda m: values.get(m.group(1), m.group(0)), text)
+        if new == text:
+            continue
+        # метка может быть разбита Word'ом на несколько фрагментов: текст в первый
+        ts[0].text = new
+        ts[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        for t in ts[1:]:
+            t.text = ""
+
+
+def _xml_text(el):
+    return "".join(t.text or "" for t in el.iter(W + "t"))
+
+
+def _fill_protocol(elements, ch, digits):
+    """Строки таблицы с метками точки размножить по точкам, затем общие метки."""
+    for el in elements:
+        for tr in [tr for tr in el.iter(W + "tr") if POINT_MARK in _xml_text(tr)]:
             for i in range(len(ch.points)):
                 new_tr = copy.deepcopy(tr)
-                anchor.addnext(new_tr)
-                anchor = new_tr
+                _fill_xml(new_tr, point_fields(ch, i, digits))
+                tr.addprevious(new_tr)
             tr.getparent().remove(tr)
-            break
-    # заполнить скопированные строки по порядку
-    for t in doc.tables:
-        idx = 0
-        for row in t.rows:
-            if POINT_MARK in _row_text(row) and idx < len(ch.points):
-                vals = point_fields(ch, idx, digits)
-                for cell in row.cells:
-                    for p in _iter_paragraphs(cell):
-                        _replace_in_paragraph(p, vals)
-                idx += 1
+        _fill_xml(el, channel_fields(ch, digits))
+
+
+def _page_break_before(el):
+    if el.tag != W + "p":
+        return
+    ppr = el.find(W + "pPr")
+    if ppr is None:
+        ppr = el.makeelement(W + "pPr", {})
+        el.insert(0, ppr)
+    if ppr.find(W + "pageBreakBefore") is None:
+        ppr.insert(0, ppr.makeelement(W + "pageBreakBefore", {}))
 
 
 def from_template(template, ch, digits=4):
-    doc = Document(template)
-    _expand_point_rows(doc, ch, digits)
-    vals = channel_fields(ch, digits)
-    for p in _iter_paragraphs(doc):
-        _replace_in_paragraph(p, vals)
-    for s in doc.sections:
-        for p in _iter_paragraphs(s.header):
-            _replace_in_paragraph(p, vals)
-        for p in _iter_paragraphs(s.footer):
-            _replace_in_paragraph(p, vals)
-    return doc
+    return build([ch], template, digits)
 
 
 def _cell(cell, text, bold=False, align=WD_ALIGN_PARAGRAPH.LEFT, size=None):
@@ -224,32 +232,36 @@ def default_template():
     return buf
 
 
-def _append_body(dst, src):
-    """Перенести содержимое документа src в конец dst (без свойств раздела)."""
-    import copy
-    body = dst.element.body
-    sect = body.sectPr
-    for el in src.element.body.iterchildren():
-        if el.tag.endswith("}sectPr"):
-            continue
-        if sect is not None:
-            sect.addprevious(copy.deepcopy(el))
-        else:
-            body.append(copy.deepcopy(el))
-
-
 def build(channels, template=None, digits=4):
-    """Один документ: протоколы каналов подряд, каждый с новой страницы."""
-    master = None
-    for ch in channels:
-        doc = from_template(template or default_template(), ch, digits)
-        if master is None:
-            master = doc
-            continue
-        if doc.paragraphs:
-            doc.paragraphs[0].paragraph_format.page_break_before = True
-        _append_body(master, doc)
-    return master
+    """Один документ: протоколы каналов подряд, каждый с новой страницы.
+
+    Шаблон открывается один раз, тело копируется на каждый канал - так
+    3000 протоколов собираются за секунды, а не минуты.
+    """
+    doc = Document(template or default_template())
+    body = doc.element.body
+    sect = body.sectPr
+    proto = [el for el in body.iterchildren() if el is not sect]
+    for el in proto:
+        body.remove(el)
+    for n, ch in enumerate(channels):
+        els = [copy.deepcopy(el) for el in proto]
+        _fill_protocol(els, ch, digits)
+        if n and els:
+            _page_break_before(els[0])
+        for el in els:
+            if sect is not None:
+                sect.addprevious(el)
+            else:
+                body.append(el)
+    # колонтитулы общие для документа - метки из первого канала
+    if channels:
+        vals = channel_fields(channels[0], digits)
+        for sec in doc.sections:
+            for part in (sec.header, sec.footer):
+                for p in _iter_paragraphs(part):
+                    _replace_in_paragraph(p, vals)
+    return doc
 
 
 def safe_name(s):
