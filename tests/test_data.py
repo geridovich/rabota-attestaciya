@@ -65,13 +65,33 @@ class PasteTest(unittest.TestCase):
         self.assertEqual(ch.points[1].measured, [0.26])
 
     def test_protocols_one_document(self):
-        from attest import protocol
+        from attest import docgen
         chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW))
         for c in chs:
             data.calc_channel(c)
-        doc = protocol.build(chs)
-        heads = [p.text for p in doc.paragraphs if p.text.startswith("ПРОТОКОЛ")]
-        self.assertEqual(heads, ["ПРОТОКОЛ № 1", "ПРОТОКОЛ № 3"])
+        doc = docgen.build_protocols(chs, [(1, 2, "07.07.2026"), (3, 3, "08.07.2026")],
+                                     "САУГ КА-4 ТЭЦ-17", docgen.EXECUTORS[3])
+        heads = [p.text for p in doc.paragraphs if p.text.startswith("Протокол №")]
+        self.assertEqual(heads, ["Протокол № 1 от 07.07.2026", "Протокол № 3 от 08.07.2026"])
+        cells = [c.text for t in doc.tables for r in t.rows for c in r.cells]
+        self.assertNotIn("{{", "".join(cells))
+        self.assertIn("__Геридович Н.В._", cells)
+        # 5 точек x (Меньшее + Большее) + 3 строки шапки
+        self.assertEqual(len(doc.tables[2].rows), 13)
+        self.assertEqual(doc.tables[2].rows[5].cells[4].text, "0,26")
+
+    def test_perechen_and_calibration_tables(self):
+        from attest import docgen
+        chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW + PASTE_NEG))
+        doc = docgen.build_perechen(chs, "ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)")
+        text = "\n".join(p.text for p in doc.paragraphs)
+        self.assertIn("Перечень измерительных каналов ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)", text)
+        self.assertIn("Таблица 1 – градуировочная таблица ИК сигналов термосопротивления", text)
+        # перечень: 2 строки шапки + по 2 строки на канал
+        self.assertEqual(len(doc.tables[0].rows), 2 + 2 * 3)
+        # градуировочная: -50...200 °С, медь 50М: -50 -> 39,35 Ом
+        cal = doc.tables[1]
+        self.assertEqual([c.text for c in cal.rows[2].cells][-1], "39,35")
         self.assertNotIn("{{", "".join(c.text for t in doc.tables for r in t.rows for c in r.cells))
 
     def test_mixed_layouts_in_one_paste(self):

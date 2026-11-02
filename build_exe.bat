@@ -1,5 +1,5 @@
 @echo off
-rem Сборка dist\AttestIK.exe (один файл, Python на рабочем ПК не нужен).
+rem Сборка dist\PlusUltra.exe (один файл, Python на рабочем ПК не нужен).
 rem Собирается 32-битным Python 3.7 (последний с поддержкой Vista): exe работает
 rem на Windows Vista/7/8/10/11, 32- и 64-битных.
 rem   %1 - команда 32-битного Python 3.7 (по умолчанию py -3.7-32)
@@ -16,4 +16,4 @@ set EXTRA=
 if exist "%UCRT%\ucrtbase.dll" (
   for %%f in ("%UCRT%\api-ms-win-*.dll" "%UCRT%\ucrtbase.dll") do call set EXTRA=%%EXTRA%% --add-binary "%%~f;."
 )
-.venv37\Scripts\pyinstaller --noconfirm --onefile --windowed --name AttestIK %EXTRA% main.py
+.venv37\Scripts\pyinstaller --noconfirm --onefile --windowed --name PlusUltra --add-data "attest\templates;attest\templates" --add-data "attest\assets;attest\assets" %EXTRA% main.py

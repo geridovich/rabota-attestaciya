@@ -295,8 +295,8 @@ def channels_from_rows(rows):
         if xd is None and pct is not None:  # формула не посчитана - считаем сами
             xd = (cur.high - cur.low) * pct / 100.0 + cur.low
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
-    # пустые заготовки без KKS и без измерений не нужны
-    return [c for c in channels if c.kks or c.points]
+    # строки-заготовки без KKS (№ проставлен, остальное пусто) не нужны
+    return [c for c in channels if c.kks]
 
 
 def expand(measured, qm):
