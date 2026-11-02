@@ -256,6 +256,9 @@ class App(tk.Tk):
             messagebox.showwarning("Нет данных", "Не найдено ни одного канала (нужны KKS и строки точек).")
             return
         self.channels += chs
+        # по умолчанию - протоколы на все вставленные каналы одним документом
+        self.start.set(1)
+        self.batch.set(min(len(self.channels), MAX_BATCH))
         self.recalc()
 
     def clear(self):
