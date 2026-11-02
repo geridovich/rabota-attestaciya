@@ -101,7 +101,12 @@ class Channel:
     # --- итоговые величины ---
     @property
     def et_ik(self):
-        return self.result.et_ik if self.result else None
+        """Погрешность ЭТ ИК, как в Excel (столбец O = макс. приведённая погрешность по точкам).
+
+        Коэффициенты gh/gl из расчёта идут в протокол, а годность определяется
+        так же, как в Excel заказчика.
+        """
+        return self.excel_err if self.result else None
 
     @property
     def pip_value(self):

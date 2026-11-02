@@ -96,7 +96,12 @@ def protocol(src):
 
     sign = cells(rows(tbls[4])[0])
     set_text(sign[1], "{{ДОЛЖНОСТЬ}}")
-    set_text(sign[3], "__{{ФИО}}_")
+    # ФИО - в подчёркнутый фрагмент, без «__» по краям (как в образце над чертой)
+    runs = [r for r in sign[3].iter(W + "r") if r.find(W + "t") is not None]
+    under = next(r for r in runs if r.find(W + "rPr/" + W + "u") is not None)
+    for r in runs:
+        r.find(W + "t").text = ""
+    under.find(W + "t").text = "{{ФИО}}"
     return doc
 
 

@@ -75,7 +75,7 @@ class PasteTest(unittest.TestCase):
         self.assertEqual(heads, ["Протокол № 1 от 07.07.2026", "Протокол № 3 от 08.07.2026"])
         cells = [c.text for t in doc.tables for r in t.rows for c in r.cells]
         self.assertNotIn("{{", "".join(cells))
-        self.assertIn("__Геридович Н.В._", cells)
+        self.assertIn("Геридович Н.В.", cells)
         # 5 точек x (Меньшее + Большее) + 3 строки шапки
         self.assertEqual(len(doc.tables[2].rows), 13)
         self.assertEqual(doc.tables[2].rows[5].cells[4].text, "0,26")
@@ -86,11 +86,15 @@ class PasteTest(unittest.TestCase):
         doc = docgen.build_perechen(chs, "ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)")
         text = "\n".join(p.text for p in doc.paragraphs)
         self.assertIn("Перечень измерительных каналов ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)", text)
-        self.assertIn("Таблица 1 – градуировочная таблица ИК сигналов термосопротивления", text)
+        self.assertIn("Таблица 1 – градуировочная таблица ИК сигналов в диапазоне 4-20 мА", text)
+        self.assertIn("Таблица 2 – градуировочная таблица ИК сигналов термосопротивления", text)
         # перечень: 2 строки шапки + по 2 строки на канал
         self.assertEqual(len(doc.tables[0].rows), 2 + 2 * 3)
+        # 4-20 мА считаются по % диапазона, даже если в Excel нет входного сигнала
+        ma = doc.tables[1]
+        self.assertEqual([[c.text for c in r.cells][-1] for r in ma.rows[2:7]], ["4", "8", "12", "16", "20"])
         # градуировочная: -50...200 °С, медь 50М: -50 -> 39,35 Ом
-        cal = doc.tables[1]
+        cal = doc.tables[2]
         self.assertEqual([c.text for c in cal.rows[2].cells][-1], "39,35")
         self.assertNotIn("{{", "".join(c.text for t in doc.tables for r in t.rows for c in r.cells))
 

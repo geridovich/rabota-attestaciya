@@ -189,15 +189,12 @@ def is_temperature(ch):
 def signal_kind(ch):
     """Вид входного воздействия для градуировочной таблицы.
 
-    «мА» - вход 4..20; «Ом» - термосопротивление; None - термопары и прочее
-    (в образце заказчика для них градуировочных таблиц нет).
+    Температура: термосопротивление - «Ом», термопара - None (в образце
+    заказчика для термопар таблиц нет). Остальное - токовый сигнал «мА».
     """
-    ins = [p.input for p in ch.points if p.input is not None]
-    if ins and abs(min(ins) - 4) < 1e-6 and abs(max(ins) - 20) < 1e-6:
-        return "мА"
-    if is_temperature(ch) and not THERMOCOUPLE_RE.search(ch.pip or ""):
-        return "Ом"
-    return None
+    if is_temperature(ch):
+        return None if THERMOCOUPLE_RE.search(ch.pip or "") else "Ом"
+    return "мА"
 
 
 # НСХ термосопротивлений: медь как в образце заказчика (50М, alpha 0,00426),
@@ -232,7 +229,9 @@ def resistance(pip, t):
 def calibration_input(ch, kind, p):
     if kind == "Ом":
         return round(resistance(ch.pip, p.xd), 3)
-    return p.input
+    # 4-20 мА по % диапазона: в Excel в столбце H бывает и ток, и значение в ед. изм.
+    pct = p.pct if p.pct is not None else (p.xd - ch.low) / (ch.high - ch.low) * 100.0
+    return round(4 + 16 * pct / 100.0, 6)
 
 
 def calibration_groups(channels):
