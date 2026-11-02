@@ -66,7 +66,54 @@ def to_text(v):
         return ""
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
-    return str(v).strip()
+    # перенос строки внутри ячейки Excel (Alt+Enter) - в пробел
+    return re.sub(r"\s*\n\s*", " ", str(v)).strip()
+
+
+def split_clipboard(text):
+    """Текст из буфера Excel -> строки ячеек.
+
+    Ячейку с переносом строки Excel берёт в кавычки ("...""..."), поэтому
+    простое деление по строкам рвёт такой канал на две строки.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    rows, row, i, n = [], [], 0, len(text)
+    while True:
+        quoted = False
+        if i < n and text[i] == '"':
+            j, buf = i + 1, []
+            while j < n:
+                if text[j] == '"':
+                    if j + 1 < n and text[j + 1] == '"':
+                        buf.append('"')
+                        j += 2
+                        continue
+                    break
+                buf.append(text[j])
+                j += 1
+            # ячейка в кавычках, только если закрывающая кавычка стоит в конце ячейки;
+            # иначе кавычка - просто часть текста («"Б" датчик»)
+            if j < n and (j + 1 == n or text[j + 1] in "\t\n"):
+                row.append("".join(buf))
+                i = j + 1
+                quoted = True
+        if not quoted:
+            k = i
+            while k < n and text[k] not in "\t\n":
+                k += 1
+            row.append(text[i:k])
+            i = k
+        if i >= n:
+            rows.append(row)
+            return rows
+        if text[i] == "\t":
+            i += 1
+        else:  # перевод строки - конец строки таблицы
+            rows.append(row)
+            row = []
+            i += 1
+            if i >= n:
+                return rows
 
 
 @dataclass
@@ -191,9 +238,7 @@ def rows_from_text(text):
         [%, входной сигнал], действительное значение, измерения 1..N.
         Входной сигнал (4..20 мА) определяется и пропускается автоматически.
     """
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [ln.split("\t") for ln in text.split("\n")]
-    lines = [[c.strip() for c in ln] for ln in lines if any(c.strip() for c in ln)]
+    lines = [[to_text(c) for c in ln] for ln in split_clipboard(text) if any(c.strip() for c in ln)]
     if not lines:
         return []
     shift = 1 if _is_kks(lines[0][0]) else 0  # вставка начата с KKS, без №

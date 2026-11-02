@@ -103,6 +103,21 @@ class PasteTest(unittest.TestCase):
         self.assertEqual([p.xd for p in chs[2].points], [-50, 12.5, 75, 137.5, 200])
         self.assertEqual([p.xd for p in chs[0].points], [0, 0.25, 0.5, 0.75, 1])
 
+    def test_cell_with_line_breaks(self):
+        """Ячейка с Alt+Enter приходит из Excel в кавычках - канал не должен рваться."""
+        text = ('281\t26MAD02CT126\t"Температура колодок\nопорно-упорного\nподшипника (сторона\n'
+                'генератора)"\t-50\t200\t˚C\t0\t-50\t-50\t-50\n'
+                '\t\t\t\t\t\t25\t12,5\t12,5\t12,5\n'
+                '\t\t\t\t\t\t50\t75\t75\t75\n'
+                '\t\t\t\t\t\t75\t137,5\t137,5\t137,5\n'
+                '\t\t\t\t\t\t100\t200\t200\t200\n'
+                '282\t26MAJ10CT001\tДатчик "Б" и ""кавычки""\t-50\t350\t˚C\t0\t-50\t-50\t-50\n')
+        chs = data.channels_from_rows(data.rows_from_text(text))
+        self.assertEqual([c.kks for c in chs], ["26MAD02CT126", "26MAJ10CT001"])
+        self.assertEqual(chs[0].name, "Температура колодок опорно-упорного подшипника (сторона генератора)")
+        self.assertEqual(len(chs[0].points), 5)
+        self.assertEqual(chs[1].name, 'Датчик "Б" и ""кавычки""')
+
     def test_paste_without_number(self):
         text = "\n".join(ln.split("\t", 1)[1] for ln in PASTE_NEG.strip("\n").split("\n"))
         ch = data.channels_from_rows(data.rows_from_text(text))[0]
