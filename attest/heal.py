@@ -56,7 +56,7 @@ def _group(rows, fixes):
         kks_raw = row.get(c["kks"])
         kks = to_text(kks_raw)
         num = to_text(row.get(c["num"]))
-        if kks and not is_kks(kks):
+        if kks and not is_kks(kks, num, row.get(c["name"])):
             # заметка в столбце KKS - к текущему каналу
             if cur is not None:
                 cur["notes"].append(kks)

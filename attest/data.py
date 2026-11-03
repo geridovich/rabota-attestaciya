@@ -70,10 +70,15 @@ def to_text(v):
     return re.sub(r"\s*\n\s*", " ", str(v)).strip()
 
 
-def is_kks(s):
-    """Позиция канала - одно «слово» (10HBK50CQ004, 24HHG20CP001, 15); заметки с пробелами - нет."""
+def is_kks(s, num=None, name=None):
+    """Начинает ли строка канал по столбцу KKS.
+
+    Обычно позиция - одно «слово» (10HBK50CQ004). Бывает и с пробелом
+    («AA00TU03 LCA30CP001» в ТГ-36) - тогда канал, если есть № или наименование.
+    Заметки вида «НЕТ НА МНЕМОСХЕМЕ» (ТА-3) стоят без № и без наименования.
+    """
     s = to_text(s)
-    return bool(s) and " " not in s
+    return bool(s) and (" " not in s or bool(to_text(num)) or bool(to_text(name)))
 
 
 def split_clipboard(text):
@@ -342,7 +347,7 @@ def channels_from_rows(rows):
     g = lambda row, key: row.get(COLUMNS[key])
     for row in rows:
         kks = to_text(g(row, "kks"))
-        if not is_kks(kks):  # заметки вида «НЕТ НА МНЕМОСХЕМЕ» в столбце KKS
+        if not is_kks(kks, g(row, "num"), g(row, "name")):  # заметки «НЕТ НА МНЕМОСХЕМЕ»
             kks = ""
         num = to_text(g(row, "num"))
         if kks or num:

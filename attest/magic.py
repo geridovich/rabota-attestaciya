@@ -34,7 +34,8 @@ def read_channels(ws_vals, lay):
     channels, cur = [], None
     for r in range(4, ws_vals.max_row + 1):
         kks = ws_vals["%s%d" % (lay["kks"], r)].value
-        if is_kks(kks):
+        if is_kks(kks, ws_vals["%s%d" % (lay["num"], r)].value if lay.get("num") else None,
+                  ws_vals["%s%d" % (lay["name"], r)].value if lay.get("name") else None):
             low, high = g("low", r), g("high", r)
             if "low" not in lay and lay.get("range"):  # диапазон текстом «0…1,02»
                 low, high = layout.parse_range(ws_vals["%s%d" % (lay["range"], r)].value or "")

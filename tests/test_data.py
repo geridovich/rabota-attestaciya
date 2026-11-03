@@ -118,6 +118,12 @@ class PasteTest(unittest.TestCase):
         self.assertEqual(len(chs[0].points), 5)
         self.assertEqual(chs[1].name, 'Датчик "Б" и ""кавычки""')
 
+    def test_kks_with_space_vs_note(self):
+        """«AA00TU03 LCA30CP001» с № - канал (ТГ-36); «НЕТ НА МНЕМОСХЕМЕ» без № - заметка."""
+        self.assertTrue(data.is_kks("AA00TU03 LCA30CP001", 348, "Давление конд."))
+        self.assertFalse(data.is_kks("НЕТ НА МНЕМОСХЕМЕ", None, None))
+        self.assertTrue(data.is_kks("10HBK50CQ004"))
+
     def test_paste_without_number(self):
         text = "\n".join(ln.split("\t", 1)[1] for ln in PASTE_NEG.strip("\n").split("\n"))
         ch = data.channels_from_rows(data.rows_from_text(text))[0]
