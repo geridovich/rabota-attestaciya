@@ -424,8 +424,6 @@ def calc_channel(ch, qm=20):
     try:
         if ch.bad_cells:
             raise calcd.CalcError("не число в ячейках: " + "; ".join(ch.bad_cells))
-        if ch.high == ch.low:
-            raise calcd.CalcError("нулевой диапазон (нижняя граница = верхней)")
         if len(ch.points) < 2:
             raise calcd.CalcError("нет измеренных значений" if not ch.points else "меньше двух точек")
         if any(p.xd is None for p in ch.points):

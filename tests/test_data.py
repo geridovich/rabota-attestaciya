@@ -142,7 +142,7 @@ def sheet_channel(m1="0", allowed=1.0, low=0, high=100):
 
 
 class BadValues(unittest.TestCase):
-    """Отчёт тестирования PU-01, PU-05, PU-11: не-числа не должны давать «Годен»."""
+    """Отчёт тестирования PU-01, PU-05: не-числа не должны давать «Годен»."""
 
     def test_good_channel(self):
         ch = sheet_channel()
@@ -160,10 +160,10 @@ class BadValues(unittest.TestCase):
         self.assertIn("R", ch.error)
         self.assertEqual(ch.verdict, "")
 
-    def test_zero_range(self):
+    def test_zero_range_is_not_error(self):
+        """Канал 0…0 (задание нагрузки) - не ошибка, по просьбе пользователя."""
         ch = sheet_channel(low=0, high=0)
-        self.assertIn("нулевой диапазон", ch.error)
-        self.assertIsNone(ch.result)
+        self.assertEqual(ch.error, "")
 
 
 if __name__ == "__main__":
