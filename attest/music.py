@@ -67,3 +67,32 @@ class Music:
             self._mci("close %s" % ALIAS)
             self.opened = False
         self.playing = False
+
+
+class Sound:
+    """Короткий звук один раз (кнопка magic)."""
+
+    def __init__(self, name, alias):
+        self.path = asset_path(name)
+        self.alias = alias
+        self.opened = False
+
+    def _mci(self, cmd):
+        if sys.platform != "win32":
+            return 1
+        buf = ctypes.create_unicode_buffer(128)
+        return ctypes.windll.winmm.mciSendStringW(cmd, buf, 127, 0)
+
+    def play(self):
+        if not os.path.exists(self.path):
+            return False
+        if not self.opened:
+            if self._mci('open "%s" type mpegvideo alias %s' % (self.path, self.alias)) != 0:
+                return False
+            self.opened = True
+        return self._mci("play %s from 0" % self.alias) == 0
+
+    def close(self):
+        if self.opened:
+            self._mci("close %s" % self.alias)
+            self.opened = False

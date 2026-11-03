@@ -3,11 +3,12 @@ import json
 import os
 import re
 import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import calcd, data, docgen, themes
-from .music import Music
+from . import calcd, data, docgen, magic, themes
+from .music import Music, Sound, asset_path
 
 APP_NAME = "Plus Ultra"
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]))
@@ -47,6 +48,9 @@ class App(tk.Tk):
         self.settings = load_settings()
         self.channels = []
         self.music = Music()
+        self.magic_sound = Sound("magic.mp3", "plusultra_magic")
+        self.xlsx_path = None  # Excel, открытый кнопкой «Открыть Excel…» (нужен для magic)
+        self._set_icon()
         self.texts = []  # tk.Text - их цвета задаются вручную
 
         self.style = ttk.Style(self)
@@ -58,6 +62,18 @@ class App(tk.Tk):
         self.apply_theme(self.settings["theme"])
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(2000, self._music_tick)
+
+    def _set_icon(self):
+        """Значок окна и панели задач."""
+        try:
+            self.iconbitmap(default=asset_path("window.ico"))
+        except tk.TclError:
+            pass
+        try:
+            self._icon_img = tk.PhotoImage(file=asset_path("window.png"))
+            self.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
 
     def px(self, n):
         return int(n * self.scale)
@@ -112,6 +128,7 @@ class App(tk.Tk):
         self.texts.append(self.detail)
         dx = ttk.Scrollbar(bottom, orient="horizontal", command=self.detail.xview)
         self.detail.configure(xscrollcommand=dx.set)
+        self._build_magic(bottom)
         self.detail.pack(fill="both", expand=True)
         dx.pack(fill="x")
         left.add(bottom, weight=1)
@@ -175,6 +192,79 @@ class App(tk.Tk):
         btns.columnconfigure(1, weight=1)
         return side
 
+    def _build_magic(self, parent):
+        """Круглая чёрная кнопка magic и ползунок «% каналов с погрешностью»."""
+        box = ttk.Frame(parent, padding=(8, 2, 2, 2))
+        box.pack(side="right", fill="y")
+        d = self.px(64)
+        self.magic_btn = tk.Canvas(box, width=d + 4, height=d + 4, highlightthickness=0, cursor="hand2")
+        self.magic_btn.create_oval(2, 2, d + 2, d + 2, fill="#000000", outline="#444444", width=2, tags="disc")
+        self.magic_btn.create_text(d // 2 + 2, d // 2 + 2, text="magic", fill="#ffffff",
+                                   font=("Segoe UI", 11, "bold italic"), tags="label")
+        self.magic_btn.bind("<Button-1>", lambda _e: self.run_magic())
+        self.magic_btn.bind("<Enter>", lambda _e: self.magic_btn.itemconfig("disc", outline="#d4af37"))
+        self.magic_btn.bind("<Leave>", lambda _e: self.magic_btn.itemconfig("disc", outline="#444444"))
+        self.magic_btn.pack()
+        self.magic_pct = tk.IntVar(value=int(self.settings.get("magic_pct", 20)))
+        self.magic_label = ttk.Label(box, text="", style="Hint.TLabel")
+        scale = ttk.Scale(box, from_=5, to=60, orient="horizontal", length=self.px(120),
+                          command=lambda v: self._magic_pct_changed(v))
+        scale.set(self.magic_pct.get())
+        scale.pack(pady=(4, 0))
+        self.magic_label.pack()
+        self._magic_pct_changed(self.magic_pct.get())
+
+    def _magic_pct_changed(self, v):
+        self.magic_pct.set(int(round(float(v))))
+        self.magic_label.config(text="с погрешностью: %d %%" % self.magic_pct.get())
+
+    def run_magic(self):
+        if not self.xlsx_path or not os.path.exists(self.xlsx_path):
+            messagebox.showwarning("Magic", "Сначала откройте файл Excel кнопкой «Открыть Excel…».")
+            return
+        if getattr(self, "_magic_busy", False):
+            return
+        self.magic_sound.play()
+        self._magic_busy = True
+        self.config(cursor="watch")
+        self.status.config(text="Magic: заполняю измеренные значения…")
+        path, pct, box = self.xlsx_path, self.magic_pct.get(), {}
+
+        def work():
+            try:
+                box["result"] = magic.run(path, pct)
+            except Exception as e:  # noqa: BLE001
+                box["error"] = e
+
+        threading.Thread(target=work, daemon=True).start()
+        self._magic_wait(box, path)
+
+    def _magic_wait(self, box, path):
+        if not box:
+            self.after(200, self._magic_wait, box, path)
+            return
+        self._magic_busy = False
+        self.config(cursor="")
+        if "error" in box:
+            self.refresh()
+            messagebox.showerror("Magic", "Не получилось: %s" % box["error"])
+            return
+        out, written, st = box["result"]
+        if not st["channels"]:
+            self.refresh()
+            messagebox.showinfo("Magic", "Пустых «Измеренных значений» на листе «%s» нет — всё уже заполнено."
+                                % st["sheet"])
+            return
+        # каналы в программе - с новыми значениями, протоколы можно делать сразу
+        self.channels = data.channels_from_rows(data.rows_from_xlsx(path, overrides=written))
+        self.start.set(1)
+        self.batch.set(min(len(self.channels), MAX_BATCH))
+        self.recalc()
+        if messagebox.askyesno(
+                "Magic", "Заполнено каналов: %d (с погрешностью: %d) на листе «%s».\n%s\n\nОткрыть файл?"
+                % (st["channels"], st["nonzero"], st["sheet"], out)):
+            os.startfile(out)
+
     # ---------- настройки ----------
     def _build_settings_tab(self, nb):
         tab = ttk.Frame(nb, padding=12)
@@ -215,6 +305,7 @@ class App(tk.Tk):
                         selectbackground=pal["select"], selectforeground=pal["select_fg"])
         self.tree.tag_configure("bad", foreground=pal["bad"])
         self.tree.tag_configure("err", foreground=pal["muted"])
+        self.magic_btn.configure(background=pal["bg"])
         self.settings["theme"] = name
 
     def toggle_music(self):
@@ -234,6 +325,7 @@ class App(tk.Tk):
         except tk.TclError:
             messagebox.showwarning("Буфер пуст", "Скопируйте в Excel нужные строки (Ctrl+C).")
             return
+        self.xlsx_path = None
         self.add_channels(data.channels_from_rows(data.rows_from_text(text)))
 
     def open_xlsx(self):
@@ -249,6 +341,7 @@ class App(tk.Tk):
             return
         finally:
             self.config(cursor="")
+        self.xlsx_path = path
         self.add_channels(data.channels_from_rows(rows))
 
     def add_channels(self, chs):
@@ -263,6 +356,7 @@ class App(tk.Tk):
 
     def clear(self):
         self.channels = []
+        self.xlsx_path = None
         self.start.set(1)
         self.recalc()
 
@@ -412,13 +506,15 @@ class App(tk.Tk):
              "batch": self._int(self.batch, 20), "out_dir": self.out_dir.get(),
              "theme": self.settings["theme"], "station": self.station.get(),
              "perechen": self.perechen.get(), "executor": self.executor.current(),
-             "dates": [[v.get() for v in row] for row in self.date_vars]}
+             "dates": [[v.get() for v in row] for row in self.date_vars],
+             "magic_pct": self.magic_pct.get()}
         try:
             with open(SETTINGS, "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=1)
         except OSError:
             pass
         self.music.close()
+        self.magic_sound.close()
         self.destroy()
 
 

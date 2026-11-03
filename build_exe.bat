@@ -16,4 +16,4 @@ set EXTRA=
 if exist "%UCRT%\ucrtbase.dll" (
   for %%f in ("%UCRT%\api-ms-win-*.dll" "%UCRT%\ucrtbase.dll") do call set EXTRA=%%EXTRA%% --add-binary "%%~f;."
 )
-.venv37\Scripts\pyinstaller --noconfirm --onefile --windowed --name PlusUltra --add-data "attest\templates;attest\templates" --add-data "attest\assets;attest\assets" %EXTRA% main.py
+.venv37\Scripts\pyinstaller --noconfirm --onefile --windowed --name PlusUltra --icon attest\assets\app.ico --add-data "attest\templates;attest\templates" --add-data "attest\assets;attest\assets" %EXTRA% main.py

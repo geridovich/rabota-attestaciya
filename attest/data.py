@@ -286,15 +286,21 @@ def rows_from_text(text):
     return rows
 
 
-def rows_from_xlsx(path, first_row=4):
+def rows_from_xlsx(path, first_row=4, overrides=None):
+    """Строки листа с измерениями. overrides: {строка Excel: значение для J..M} (magic)."""
     import openpyxl
+    from .magic import MEASURE_COLS, pick_sheet
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    ws = wb.worksheets[0]
+    ws = pick_sheet(wb)
     rows = []
-    for r in ws.iter_rows(min_row=first_row, values_only=True):
+    for n, r in enumerate(ws.iter_rows(min_row=first_row, values_only=True), start=first_row):
         if not any(v is not None and str(v).strip() for v in r):
             continue
-        rows.append({col_letter(i): v for i, v in enumerate(r)})
+        row = {col_letter(i): v for i, v in enumerate(r)}
+        if overrides and n in overrides:
+            for c in MEASURE_COLS:
+                row[c] = overrides[n]
+        rows.append(row)
     wb.close()
     return rows
 
@@ -364,7 +370,7 @@ def calc_channel(ch, qm=20):
     ch.result, ch.error = None, ""
     try:
         if len(ch.points) < 2:
-            raise calcd.CalcError("меньше двух точек")
+            raise calcd.CalcError("нет измеренных значений" if not ch.points else "меньше двух точек")
         if any(p.xd is None for p in ch.points):
             raise calcd.CalcError("нет действительного значения (столбец I)")
         values = []
