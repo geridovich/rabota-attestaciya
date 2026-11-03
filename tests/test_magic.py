@@ -56,6 +56,17 @@ class MagicTest(unittest.TestCase):
             ws = openpyxl.load_workbook(out).active
             self.assertEqual(len({ws["%s5" % c].value for c in "JKLM"}), 1)
 
+    def test_first_point_exact_and_one_sign(self):
+        rng = random.Random(5)
+        for _ in range(300):
+            ch = {"low": 0.0, "high": 1600.0, "P": 0.2, "R": 0.321,
+                  "points": [{"row": 4 + k, "xd": 400.0 * k, "empty": True} for k in range(5)]}
+            v = magic.generate_channel(ch, True, rng)
+            self.assertEqual(v[4], 0.0)
+            signs = {(v[r] > ch["points"][r - 4]["xd"]) - (v[r] < ch["points"][r - 4]["xd"]) for r in v}
+            self.assertLessEqual(len(signs - {0}), 1)
+            self.assertGreater(magic.point_error(ch, v), 0)
+
     def test_random_each_run(self):
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "src.xlsx")

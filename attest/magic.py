@@ -93,23 +93,25 @@ def generate_channel(ch, nonzero, rng=_rng):
     step = step_for(span)
     out = {p["row"]: p["xd"] for p in ch["points"]}
     limit = max_error(ch)
-    if not nonzero or limit <= 0 or span <= 0:
+    # первая точка (0 %) всегда точная; погрешность только у остальных
+    pts = sorted(ch["points"], key=lambda p: p["row"])[1:]
+    if not nonzero or limit <= 0 or span <= 0 or not pts:
         return out
     target = rng.uniform(0.15, 0.85) * limit
-    pts = ch["points"]
+    sign = rng.choice((-1, 1))  # в канале все отклонения в одну сторону
     loud = rng.randrange(len(pts))  # хотя бы одна точка с заметной погрешностью
     for i, p in enumerate(pts):
         err = rng.uniform(0.5, 1.0) * target if i == loud else rng.uniform(0.0, 1.0) * target
         if i != loud and rng.random() < 0.35:
             err = 0.0
-        val = _round(p["xd"] + rng.choice((-1, 1)) * err / 100.0 * span, step)
+        val = _round(p["xd"] + sign * err / 100.0 * span, step)
         # после округления погрешность не должна выйти за границу годности
         while abs(val - p["xd"]) / span * 100.0 > limit and abs(val - p["xd"]) >= step:
             val = _round(val - math.copysign(step, val - p["xd"]), step)
         out[p["row"]] = val
     if all(abs(out[p["row"]] - p["xd"]) < step / 2 for p in pts):
         p = pts[loud]
-        val = _round(p["xd"] + rng.choice((-1, 1)) * step, step)
+        val = _round(p["xd"] + sign * step, step)
         if abs(val - p["xd"]) / span * 100.0 <= limit:
             out[p["row"]] = val
     return out
