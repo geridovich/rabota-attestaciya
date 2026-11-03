@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import calcd, data, docgen, magic, themes
+from . import calcd, data, docgen, heal, magic, themes
 from .music import Music, Sound, asset_path
 
 APP_NAME = "Plus Ultra"
@@ -98,7 +98,8 @@ class App(tk.Tk):
         bar = ttk.Frame(tab)
         bar.pack(fill="x")
         ttk.Button(bar, text="Вставить из буфера", command=self.paste_clipboard).pack(side="left")
-        ttk.Button(bar, text="Открыть Excel…", command=self.open_xlsx).pack(side="left", padx=4)
+        ttk.Button(bar, text="Открыть Excel…", command=self.open_xlsx).pack(side="left", padx=(4, 0))
+        ttk.Button(bar, text="Полечить файл", command=self.heal_file).pack(side="left", padx=4)
         ttk.Button(bar, text="Очистить", command=self.clear).pack(side="left")
         ttk.Button(bar, text="Рассчитать", command=self.recalc).pack(side="left", padx=4)
         ttk.Button(bar, text="Копировать результаты", command=self.copy_results).pack(side="left")
@@ -217,6 +218,50 @@ class App(tk.Tk):
     def _magic_pct_changed(self, v):
         self.magic_pct.set(int(round(float(v))))
         self.magic_label.config(text="с погрешностью: %d %%" % self.magic_pct.get())
+
+    def heal_file(self):
+        """Привести открытый Excel к одному виду (копия «… (вылечено).xlsx») и работать с ней."""
+        if not self.xlsx_path or not os.path.exists(self.xlsx_path):
+            messagebox.showwarning("Полечить файл", "Сначала откройте файл Excel кнопкой «Открыть Excel…».")
+            return
+        if getattr(self, "_busy", False):
+            return
+        self._busy = True
+        self.config(cursor="watch")
+        self.status.config(text="Лечу файл…")
+        path, box = self.xlsx_path, {}
+
+        def work():
+            try:
+                box["result"] = heal.heal(path)
+            except Exception as e:  # noqa: BLE001
+                box["error"] = e
+
+        threading.Thread(target=work, daemon=True).start()
+        self._wait(box, self._heal_done)
+
+    def _wait(self, box, done):
+        if not box:
+            self.after(200, self._wait, box, done)
+            return
+        self._busy = False
+        self.config(cursor="")
+        done(box)
+
+    def _heal_done(self, box):
+        if "error" in box:
+            self.refresh()
+            messagebox.showerror("Полечить файл", "Не получилось: %s" % box["error"])
+            return
+        out, fixes, n = box["result"]
+        self.xlsx_path = out
+        self.channels = []
+        self.add_channels(data.channels_from_rows(data.rows_from_xlsx(out)))
+        lines = ["• %s: %d" % (k, v) for k, v in fixes.items()] or ["• косяков не нашлось, файл и так в порядке"]
+        text = "Каналов: %d. Что исправлено:\n%s\n\nДальше работа идёт с копией:\n%s\n\nОткрыть её?" % (
+            n, "\n".join(lines), out)
+        if messagebox.askyesno("Полечить файл", text):
+            os.startfile(out)
 
     def run_magic(self):
         if not self.xlsx_path or not os.path.exists(self.xlsx_path):

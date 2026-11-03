@@ -310,7 +310,11 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
         for std, src in zip(m_std, lay["m"]):
             row[std] = overrides[n] if overrides and n in overrides else raw.get(src)
         if "low" not in lay and lay.get("range") and raw.get(lay["range"]) is not None:
-            row[COLUMNS["low"]], row[COLUMNS["high"]] = layout.parse_range(raw[lay["range"]])
+            low, high = layout.parse_range(raw[lay["range"]])
+            if low is None and high is None and "unit" not in lay:
+                row[COLUMNS["unit"]] = raw[lay["range"]]  # ТА-3: единица строкой ниже диапазона
+            else:
+                row[COLUMNS["low"]], row[COLUMNS["high"]] = low, high
         rows.append(row)
     wb.close()
     return rows
@@ -356,6 +360,8 @@ def channels_from_rows(rows):
             channels.append(cur)
         if cur is None:
             continue
+        if not cur.unit and to_text(g(row, "unit")):
+            cur.unit = to_text(g(row, "unit"))
         measured = measured_values(row)
         if not measured:
             continue
@@ -364,7 +370,6 @@ def channels_from_rows(rows):
         if xd is None and pct is not None:  # формула не посчитана - считаем сами
             xd = (cur.high - cur.low) * pct / 100.0 + cur.low
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
-    # строки-заготовки без KKS (№ проставлен, остальное пусто) не нужны
     # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны
     return [c for c in channels if c.kks and (c.name or c.high != c.low)]
 
