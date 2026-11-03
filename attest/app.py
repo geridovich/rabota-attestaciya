@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import calcd, data, docgen, heal, magic, themes
+from . import calcd, data, dnd, docgen, heal, magic, themes
 from .music import Music, Sound, asset_path
 
 APP_NAME = "Plus Ultra"
@@ -62,6 +62,10 @@ class App(tk.Tk):
         self.apply_theme(self.settings["theme"])
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(2000, self._music_tick)
+        try:
+            dnd.enable(self, self.on_drop)  # перетаскивание Excel в окно
+        except (OSError, AttributeError, ValueError):
+            pass
 
     def _set_icon(self):
         """Значок окна и панели задач."""
@@ -375,8 +379,20 @@ class App(tk.Tk):
 
     def open_xlsx(self):
         path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm")])
-        if not path:
+        if path:
+            self.open_path(path)
+
+    def on_drop(self, files):
+        """Файлы, перетащенные в окно: берётся первый Excel."""
+        xl = [f for f in files if f.lower().endswith((".xlsx", ".xlsm"))]
+        if not xl:
+            messagebox.showwarning("Перетаскивание", "Перетащите файл Excel (.xlsx). Старый формат .xls "
+                                   "сначала пересохраните в Excel как .xlsx.")
             return
+        self.open_path(xl[0])
+
+    def open_path(self, path):
+        """Открыть Excel: каналы из него заменяют список в программе."""
         self.config(cursor="watch")
         self.update()
         try:
@@ -387,6 +403,7 @@ class App(tk.Tk):
         finally:
             self.config(cursor="")
         self.xlsx_path = path
+        self.channels = []
         self.add_channels(data.channels_from_rows(rows))
 
     def add_channels(self, chs):
