@@ -15,6 +15,8 @@ APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen
 SETTINGS = os.path.join(APP_DIR, "settings.json")
 MAX_BATCH = 3000  # протоколов в одном документе
 DATE_RANGES = 15  # строк «с № по № - дата»
+HEALED_DIR = "Вылеченные файлы Excel"
+MAGIC_DIR = "Заполненные измерения (magic)"
 DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 DEFAULTS = {
     "pip": "", "allowed": "", "qm": 20, "digits": 4, "batch": 20,
@@ -59,6 +61,8 @@ class App(tk.Tk):
         nb.pack(fill="both", expand=True)
         self._build_main_tab(nb)
         self._build_settings_tab(nb)
+        self._build_help_tab(nb)
+        self.nb = nb
         self.apply_theme(self.settings["theme"])
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(2000, self._music_tick)
@@ -201,18 +205,18 @@ class App(tk.Tk):
         """Круглая чёрная кнопка magic и ползунок «% каналов с погрешностью»."""
         box = ttk.Frame(parent, padding=(8, 2, 2, 2))
         box.pack(side="right", fill="y")
-        d = self.px(64)
+        d = self.px(150)
         self.magic_btn = tk.Canvas(box, width=d + 4, height=d + 4, highlightthickness=0, cursor="hand2")
-        self.magic_btn.create_oval(2, 2, d + 2, d + 2, fill="#000000", outline="#444444", width=2, tags="disc")
+        self.magic_btn.create_oval(2, 2, d + 2, d + 2, fill="#000000", outline="#444444", width=3, tags="disc")
         self.magic_btn.create_text(d // 2 + 2, d // 2 + 2, text="magic", fill="#ffffff",
-                                   font=("Segoe UI", 11, "bold italic"), tags="label")
+                                   font=("Segoe UI", 24, "bold italic"), tags="label")
         self.magic_btn.bind("<Button-1>", lambda _e: self.run_magic())
         self.magic_btn.bind("<Enter>", lambda _e: self.magic_btn.itemconfig("disc", outline="#d4af37"))
         self.magic_btn.bind("<Leave>", lambda _e: self.magic_btn.itemconfig("disc", outline="#444444"))
         self.magic_btn.pack()
         self.magic_pct = tk.IntVar(value=int(self.settings.get("magic_pct", 20)))
         self.magic_label = ttk.Label(box, text="", style="Hint.TLabel")
-        scale = ttk.Scale(box, from_=5, to=60, orient="horizontal", length=self.px(120),
+        scale = ttk.Scale(box, from_=5, to=60, orient="horizontal", length=self.px(170),
                           command=lambda v: self._magic_pct_changed(v))
         scale.set(self.magic_pct.get())
         scale.pack(pady=(4, 0))
@@ -233,11 +237,11 @@ class App(tk.Tk):
         self._busy = True
         self.config(cursor="watch")
         self.status.config(text="Лечу файл…")
-        path, box = self.xlsx_path, {}
+        path, box, out_dir = self.xlsx_path, {}, self.sub_dir(HEALED_DIR)
 
-        def work():
+        def work():  # в потоке - без обращений к Tk
             try:
-                box["result"] = heal.heal(path)
+                box["result"] = heal.heal(path, out_dir=out_dir)
             except Exception as e:  # noqa: BLE001
                 box["error"] = e
 
@@ -278,10 +282,11 @@ class App(tk.Tk):
         self.config(cursor="watch")
         self.status.config(text="Magic: заполняю измеренные значения…")
         path, pct, box = self.xlsx_path, self.magic_pct.get(), {}
+        out_dir = self.sub_dir(MAGIC_DIR)  # в потоке Tk трогать нельзя
 
         def work():
             try:
-                box["result"] = magic.run(path, pct)
+                box["result"] = magic.run(path, pct, out_dir=out_dir)
             except Exception as e:  # noqa: BLE001
                 box["error"] = e
 
@@ -346,6 +351,82 @@ class App(tk.Tk):
         row("Папка для документов:", out)
         ttk.Button(tab, text="Пересчитать", command=self.recalc).grid(row=r, column=1, sticky="w", pady=(10, 0))
 
+    # ---------- помощь ----------
+    HELP_STEPS = (
+        ("1", "Открыть Excel", "Нажмите «Открыть Excel…» или просто перетащите файл Excel мышью в окно. "
+                               "Можно и скопировать строки каналов в Excel (Ctrl+C) и нажать «Вставить из буфера»."),
+        ("2", "Полечить файл", "Если файл «кривой» (сдвинутые столбцы, заметки в KKS, пустые заготовки, "
+                               "числа текстом), нажмите «Полечить файл». Программа сделает исправленную копию "
+                               "в папке «Вылеченные файлы Excel» и дальше будет работать с ней."),
+        ("3", "Magic", "Если в Excel пусты «Измеренные значения выходного сигнала», нажмите большую чёрную "
+                       "кнопку magic. Ползунок под ней - сколько процентов каналов получат небольшую "
+                       "погрешность; все каналы останутся годными. Копия сохраняется в папку "
+                       "«Заполненные измерения (magic)»."),
+        ("4", "Проверить таблицу", "В таблице видно каждый канал: погрешности, допуск и «Годен / Не годен». "
+                                   "Щелчок по каналу показывает расчёт снизу."),
+        ("5", "Документы", "Впишите окончание заголовка протокола («…аттестации ИК САУГ КА-4 ТЭЦ-17»), "
+                           "название перечня и выберите, кто делал протоколы."),
+        ("6", "Даты протоколов", "До 15 строк «с № по № - дата», например 1-10 и 07.07.2026. "
+                                 "Номер протокола - это № канала из Excel."),
+        ("7", "Создать", "«Протоколы» - один Word со всеми протоколами (число в документе ставится само), "
+                         "«Только выделенные» - по выделенным строкам таблицы, «Перечень» - перечень и "
+                         "градуировочные таблицы, «Открыть папку» - папка с документами и подпапками."),
+        ("8", "Музыка", "Кнопка ♪ включает и выключает музыку."),
+        ("9", "Настройки", "Цветовая палитра, число измерений в точке, папка для документов."),
+    )
+
+    def _build_help_tab(self, nb):
+        outer = ttk.Frame(nb)
+        nb.add(outer, text="Помощь")
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        ys = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=ys.set)
+        ys.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        page = ttk.Frame(canvas, padding=14)
+        win = canvas.create_window(0, 0, window=page, anchor="nw")
+        page.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        self._help_texts = []
+
+        def resize(e):
+            canvas.itemconfigure(win, width=e.width)
+            for lbl in self._help_texts:  # перенос строк по ширине окна
+                lbl.configure(wraplength=max(200, e.width - self.px(90)))
+
+        canvas.bind("<Configure>", resize)
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units")
+                        if self.nb.index("current") == 2 else None)
+        self.help_canvas = canvas
+        self._help_imgs = []
+
+        ttk.Label(page, text="Как пользоваться Plus Ultra", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(page, text="Номера на картинке совпадают с шагами ниже.", style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
+        self._help_image(page, "help_main.png")
+        for num, title, text in self.HELP_STEPS:
+            row = ttk.Frame(page)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text=num, style="Step.TLabel", width=3, anchor="center").pack(side="left", anchor="n")
+            col = ttk.Frame(row)
+            col.pack(side="left", fill="x", expand=True, padx=(8, 0))
+            ttk.Label(col, text=title, style="Bold.TLabel").pack(anchor="w")
+            lbl = ttk.Label(col, text=text, wraplength=self.px(820), justify="left")
+            lbl.pack(anchor="w")
+            self._help_texts.append(lbl)
+        ttk.Label(page, text="Настройки (10 - цветовая палитра)", style="Bold.TLabel").pack(anchor="w", pady=(12, 4))
+        self._help_image(page, "help_settings.png")
+        ttk.Label(page, text="Обычный порядок: 1 → (2) → (3) → 4 → 5 → 6 → 7.", style="Bold.TLabel").pack(anchor="w", pady=(12, 0))
+
+    def _help_image(self, parent, name):
+        path = asset_path(name)
+        if not os.path.exists(path):
+            return
+        try:
+            img = tk.PhotoImage(file=path)
+        except tk.TclError:
+            return
+        self._help_imgs.append(img)
+        tk.Label(parent, image=img, borderwidth=1, relief="solid").pack(anchor="w", pady=(0, 8))
+
     # ---------- темы и музыка ----------
     def apply_theme(self, name):
         pal = themes.apply(self.style, name, self)
@@ -355,6 +436,7 @@ class App(tk.Tk):
         self.tree.tag_configure("bad", foreground=pal["bad"])
         self.tree.tag_configure("err", foreground=pal["muted"])
         self.magic_btn.configure(background=pal["bg"])
+        self.help_canvas.configure(background=pal["bg"])
         self.settings["theme"] = name
 
     def toggle_music(self):
@@ -479,9 +561,14 @@ class App(tk.Tk):
         if p:
             self.out_dir.set(p)
 
+    def sub_dir(self, name):
+        """Подпапка в папке документов (вылеченные Excel, файлы magic)."""
+        return os.path.join(self.out_dir.get(), name)
+
     def open_out_dir(self):
         d = self.out_dir.get()
-        os.makedirs(d, exist_ok=True)
+        for name in (HEALED_DIR, MAGIC_DIR):
+            os.makedirs(os.path.join(d, name), exist_ok=True)
         os.startfile(d)
 
     def date_ranges(self):

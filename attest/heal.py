@@ -102,7 +102,7 @@ def _group(rows, fixes):
     return kept
 
 
-def heal(path, out_path=None):
+def heal(path, out_path=None, out_dir=None):
     """Вылечить файл. Возвращает (путь копии, {что исправлено: сколько}, каналов)."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, Side
@@ -202,7 +202,10 @@ def heal(path, out_path=None):
     ws.freeze_panes = "D4"
     wb.calculation.fullCalcOnLoad = True
     if out_path is None:
-        base = os.path.splitext(path)[0]
+        src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        base = os.path.splitext(src)[0]
         base = re.sub(r" \(вылечено( \d+)?\)$", "", base)
         out_path, n = base + " (вылечено).xlsx", 2
         while os.path.exists(out_path):

@@ -1,0 +1,136 @@
+"""Скриншоты для вкладки «Помощь»: окно с примером данных и номерами шагов.
+
+Запуск (нужны Pillow и пример Excel):
+    python tools/make_help.py пример.xlsx
+Картинки сохраняются в attest/assets/help_*.png.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from PIL import Image, ImageDraw, ImageFont, ImageGrab  # noqa: E402
+
+from attest import app as appmod  # noqa: E402
+
+OUT = os.path.join(os.path.dirname(__file__), "..", "attest", "assets")
+RED = (220, 30, 40)
+
+
+def find(widget, text):
+    """Виджет по тексту (кнопки, подписи, рамки)."""
+    for w in widget.winfo_children():
+        try:
+            if w.cget("text") == text:
+                return w
+        except Exception:  # noqa: BLE001 - у части виджетов нет text
+            pass
+        r = find(w, text)
+        if r is not None:
+            return r
+    return None
+
+
+def box(root, w):
+    x, y = w.winfo_rootx() - root.winfo_rootx(), w.winfo_rooty() - root.winfo_rooty()
+    return x, y, x + w.winfo_width(), y + w.winfo_height()
+
+
+def tab_box(root, index):
+    """Ярлык вкладки блокнота: ищем по x, где nb.index("@x,y") == index."""
+    nb = root.nb
+    y = int(10 * root.scale)
+    xs = []
+    for x in range(0, nb.winfo_width(), 2):
+        try:
+            if nb.index("@%d,%d" % (x, y)) == index:
+                xs.append(x)
+        except Exception:  # noqa: BLE001 - не над ярлыком
+            pass
+    ox, oy = nb.winfo_rootx() - root.winfo_rootx(), nb.winfo_rooty() - root.winfo_rooty()
+    return ox + xs[0] - 3, oy, ox + xs[-1] + 3, oy + int(26 * root.scale)
+
+
+def mark(img, marks, scale):
+    d = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("arialbd.ttf", int(22 * scale))
+    except OSError:
+        font = ImageFont.load_default()
+    r = int(17 * scale)
+    for n, (x0, y0, x1, y1), corner in marks:
+        d.rectangle((x0, y0, x1, y1), outline=RED, width=max(2, int(3 * scale)))
+        cx, cy = (x0, y0) if corner == "tl" else (x1, y0)
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=RED, outline="white", width=2)
+        t = str(n)
+        tw, th = d.textbbox((0, 0), t, font=font)[2:]
+        d.text((cx - tw / 2, cy - th / 2 - 2), t, fill="white", font=font)
+    return img
+
+
+def shot(root):
+    root.update()
+    x, y = root.winfo_rootx(), root.winfo_rooty()
+    return ImageGrab.grab((x, y, x + root.winfo_width(), y + root.winfo_height()))
+
+
+def main(xlsx):
+    appmod.enable_dpi_awareness()
+    a = appmod.App()
+    a.state("normal")
+    a.geometry("1366x700+0+0")
+    a.apply_theme("Superman")
+    a.attributes("-topmost", True)
+    a.open_path(xlsx)
+    a.date_vars[0][0].set("1")
+    a.date_vars[0][1].set("200")
+    a.date_vars[0][2].set("07.07.2026")
+    a.out_dir.set(r"C:\Аттестация\Документы")
+    a.tree.selection_set("0")
+    a.show_detail()
+    a.update()
+    a.after(800)
+    a.update()
+    s = a.scale
+
+    def b(text, pad=4):
+        x0, y0, x1, y1 = box(a, find(a, text))
+        return x0 - pad, y0 - pad, x1 + pad, y1 + pad
+
+    tree = box(a, a.tree)
+    magic_btn = box(a, a.magic_btn)
+    magic_box = (magic_btn[0] - 30, magic_btn[1] - 6, magic_btn[2] + 30, magic_btn[3] + int(60 * s))
+    excel = b("Открыть Excel…")
+    marks = [
+        (1, (b("Вставить из буфера")[0], excel[1], b("Полечить файл")[0] - 2, excel[3]), "tl"),
+        (2, b("Полечить файл"), "tr"),
+        (3, magic_box, "tl"),
+        (4, (tree[0], tree[1], tree[2], tree[3]), "tl"),
+        (5, box(a, find(a, "Документы")), "tl"),
+        (6, box(a, find(a, "Даты протоколов (дата в виде 07.07.2026)")), "tl"),
+        (7, box(a, find(a, "Создать")), "tl"),
+        (8, b("♪ выкл"), "tr"),
+        (9, tab_box(a, 1), "tr"),
+    ]
+    img = mark(shot(a).convert("RGB"), marks, s)
+    img.save(os.path.join(OUT, "help_main.png"))
+
+    a.nb.select(1)
+    a.update()
+    a.after(500)
+    a.update()
+    theme = box(a, a.theme)
+    img = mark(shot(a).convert("RGB"), [(10, (theme[0] - 4, theme[1] - 4, theme[2] + 4, theme[3] + 4), "tr")], s)
+    img.crop((0, 0, img.width // 2, img.height // 2)).save(os.path.join(OUT, "help_settings.png"))
+    for f in ("help_main.png", "help_settings.png"):
+        im = Image.open(os.path.join(OUT, f))
+        if im.width > 1000:  # компактнее для exe
+            im = im.resize((1000, int(im.height * 1000 / im.width)), Image.LANCZOS)
+        im.save(os.path.join(OUT, f), optimize=True)
+    a.music.close()
+    a.magic_sound.close()
+    a.destroy()
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

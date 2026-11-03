@@ -148,7 +148,7 @@ def point_error(ch, values):
     return max(abs(values[p["row"]] - p["xd"]) / span * 100.0 for p in ch["points"])
 
 
-def run(path, percent, out_path=None, rng=_rng):
+def run(path, percent, out_path=None, rng=_rng, out_dir=None):
     """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика)."""
     import openpyxl
     wb = openpyxl.load_workbook(path)
@@ -174,7 +174,10 @@ def run(path, percent, out_path=None, rng=_rng):
             written[row] = v
     wb.calculation.fullCalcOnLoad = True  # Excel пересчитает формулы N, O, Q, S при открытии
     if out_path is None:
-        base, ext = os.path.splitext(path)
+        src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        base = os.path.splitext(src)[0]
         out_path, n = base + " (magic).xlsx", 2
         while os.path.exists(out_path):
             out_path, n = "%s (magic %d).xlsx" % (base, n), n + 1
