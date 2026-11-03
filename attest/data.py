@@ -70,6 +70,12 @@ def to_text(v):
     return re.sub(r"\s*\n\s*", " ", str(v)).strip()
 
 
+def is_kks(s):
+    """Позиция канала - одно «слово» (10HBK50CQ004, 24HHG20CP001, 15); заметки с пробелами - нет."""
+    s = to_text(s)
+    return bool(s) and " " not in s
+
+
 def split_clipboard(text):
     """Текст из буфера Excel -> строки ячеек.
 
@@ -289,17 +295,22 @@ def rows_from_text(text):
 def rows_from_xlsx(path, first_row=4, overrides=None):
     """Строки листа с измерениями. overrides: {строка Excel: значение для J..M} (magic)."""
     import openpyxl
-    from .magic import MEASURE_COLS, pick_sheet
+    from . import layout
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    ws = pick_sheet(wb)
+    ws, lay = layout.pick_sheet(wb)
+    keys = [k for k in COLUMNS if not k.startswith("m")]
+    m_std = [col_letter(col_index(COLUMNS["m1"]) + k) for k in range(len(lay["m"]))]
     rows = []
     for n, r in enumerate(ws.iter_rows(min_row=first_row, values_only=True), start=first_row):
         if not any(v is not None and str(v).strip() for v in r):
             continue
-        row = {col_letter(i): v for i, v in enumerate(r)}
-        if overrides and n in overrides:
-            for c in MEASURE_COLS:
-                row[c] = overrides[n]
+        raw = {col_letter(i): v for i, v in enumerate(r)}
+        # раскладка листа -> стандартные столбцы (как в ТА-6), дальше всё одинаково
+        row = {COLUMNS[k]: raw.get(lay[k]) for k in keys if k in lay}
+        for std, src in zip(m_std, lay["m"]):
+            row[std] = overrides[n] if overrides and n in overrides else raw.get(src)
+        if "low" not in lay and lay.get("range") and raw.get(lay["range"]) is not None:
+            row[COLUMNS["low"]], row[COLUMNS["high"]] = layout.parse_range(raw[lay["range"]])
         rows.append(row)
     wb.close()
     return rows
@@ -327,6 +338,8 @@ def channels_from_rows(rows):
     g = lambda row, key: row.get(COLUMNS[key])
     for row in rows:
         kks = to_text(g(row, "kks"))
+        if not is_kks(kks):  # заметки вида «НЕТ НА МНЕМОСХЕМЕ» в столбце KKS
+            kks = ""
         num = to_text(g(row, "num"))
         if kks or num:
             allowed = to_float(g(row, "allowed"))
@@ -352,7 +365,8 @@ def channels_from_rows(rows):
             xd = (cur.high - cur.low) * pct / 100.0 + cur.low
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
     # строки-заготовки без KKS (№ проставлен, остальное пусто) не нужны
-    return [c for c in channels if c.kks]
+    # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны
+    return [c for c in channels if c.kks and (c.name or c.high != c.low)]
 
 
 def expand(measured, qm):

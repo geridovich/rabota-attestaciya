@@ -15,64 +15,50 @@ import math
 import os
 import random
 
-from .data import to_float
+from . import layout
+from .data import is_kks, to_float
 
-MEASURE_COLS = ("J", "K", "L", "M")
-HEADER_MARK = "Измеренное значение"
 _rng = random.SystemRandom()  # каждый запуск - новый случайный набор
 
 
-def pick_sheet(wb):
-    """Лист с измерениями: первый, где в шапке есть «Измеренное значение…»."""
-    for ws in wb.worksheets:
-        for row in ws.iter_rows(min_row=1, max_row=2, values_only=True):
-            if any(isinstance(v, str) and HEADER_MARK in v for v in row):
-                return ws
-    return wb.worksheets[0]
-
-
-def _cached(ws_vals, cell):
-    v = ws_vals[cell].value
+def _cached(ws_vals, col, r):
+    if not col:
+        return None
+    v = ws_vals["%s%d" % (col, r)].value
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else to_float(v)
 
 
-def _formula_value(ws_vals, r, col, low, high, pct):
-    """Значение ячейки: сохранённое Excel, иначе посчитанное по формуле листа."""
-    v = _cached(ws_vals, "%s%d" % (col, r))
-    if v is not None:
-        return v
-    if col == "I" and pct is not None:
-        return (high - low) * pct / 100.0 + low
-    return None
-
-
-def read_channels(ws, ws_vals):
+def read_channels(ws_vals, lay):
     """Каналы листа с номерами строк Excel: [{'row', 'kks', 'low', 'high', 'P', 'R', 'points': [...]}]."""
+    g = lambda key, r: _cached(ws_vals, lay.get(key), r)
     channels, cur = [], None
-    for r in range(4, ws.max_row + 1):
-        kks = ws_vals["B%d" % r].value
-        if kks is not None and str(kks).strip():
-            low = _cached(ws_vals, "D%d" % r) or 0.0
-            high = _cached(ws_vals, "E%d" % r)
-            p = _cached(ws_vals, "P%d" % r)
+    for r in range(4, ws_vals.max_row + 1):
+        kks = ws_vals["%s%d" % (lay["kks"], r)].value
+        if is_kks(kks):
+            low, high = g("low", r), g("high", r)
+            if "low" not in lay and lay.get("range"):  # диапазон текстом «0…1,02»
+                low, high = layout.parse_range(ws_vals["%s%d" % (lay["range"], r)].value or "")
+            p = g("pip_ik", r)
             if p is None:
-                p = _cached(ws_vals, "U%d" % r)
-            w = _cached(ws_vals, "W%d" % r)
-            allowed = _cached(ws_vals, "R%d" % r)
+                p = g("pip_err", r)
+            w = g("module_err", r)
+            allowed = g("allowed", r)
             if allowed is None:
-                allowed = _cached(ws_vals, "X%d" % r)
+                allowed = g("allowed_ik", r)
             if allowed is None and p is not None:
                 allowed = 1.1 * math.sqrt(p * p + (w if w is not None else 0.15) ** 2)
-            cur = {"row": r, "kks": str(kks).strip(), "low": low, "high": high,
+            cur = {"row": r, "kks": str(kks).strip(), "low": low or 0.0, "high": high,
                    "P": p, "R": allowed, "points": []}
             channels.append(cur)
         if cur is None or cur["high"] is None:
             continue
-        pct = _cached(ws_vals, "G%d" % r)
-        xd = _formula_value(ws_vals, r, "I", cur["low"], cur["high"], pct)
+        pct = g("pct", r)
+        xd = g("output", r)
+        if xd is None and pct is not None:  # формула I = (E-D)*%+D без сохранённого значения
+            xd = (cur["high"] - cur["low"]) * pct / 100.0 + cur["low"]
         if pct is None and xd is None:
             continue
-        filled = [ws_vals["%s%d" % (c, r)].value for c in MEASURE_COLS]
+        filled = [ws_vals["%s%d" % (c, r)].value for c in lay["m"]]
         cur["points"].append({"row": r, "xd": xd,
                               "empty": all(v is None or str(v).strip() == "" for v in filled)})
     return channels
@@ -103,7 +89,7 @@ def max_error(ch):
 
 def generate_channel(ch, nonzero, rng=_rng):
     """{строка Excel: измеренное значение} для точек канала."""
-    span = ch["high"] - ch["low"]
+    span = abs(ch["high"] - ch["low"])  # бывает и обратный диапазон (1,6…0)
     step = step_for(span)
     out = {p["row"]: p["xd"] for p in ch["points"]}
     limit = max_error(ch)
@@ -131,7 +117,9 @@ def generate_channel(ch, nonzero, rng=_rng):
 
 def point_error(ch, values):
     """ЭТ ИК канала по сгенерированным значениям (формулы N, O листа)."""
-    span = ch["high"] - ch["low"]
+    span = abs(ch["high"] - ch["low"])
+    if span == 0:
+        return 0.0
     return max(abs(values[p["row"]] - p["xd"]) / span * 100.0 for p in ch["points"])
 
 
@@ -140,13 +128,15 @@ def run(path, percent, out_path=None, rng=_rng):
     import openpyxl
     wb = openpyxl.load_workbook(path)
     vals = openpyxl.load_workbook(path, data_only=True)
-    ws = pick_sheet(wb)
-    ws_vals = vals[ws.title]
-    channels = [c for c in read_channels(ws, ws_vals)
+    ws_vals, lay = layout.pick_sheet(vals)
+    ws = wb[ws_vals.title]
+    channels = [c for c in read_channels(ws_vals, lay)
                 if c["points"] and all(p["empty"] for p in c["points"])
                 and all(p["xd"] is not None for p in c["points"])]
-    k = int(round(len(channels) * percent / 100.0))
-    chosen = set(id(c) for c in rng.sample(channels, k)) if channels else set()
+    # погрешность можно дать только каналам с диапазоном и запасом до допуска
+    eligible = [c for c in channels if c["high"] != c["low"] and max_error(c) > 0]
+    k = min(len(eligible), int(round(len(channels) * percent / 100.0)))
+    chosen = set(id(c) for c in rng.sample(eligible, k))
     written = {}
     nonzero = 0
     for c in channels:
@@ -154,7 +144,7 @@ def run(path, percent, out_path=None, rng=_rng):
         if point_error(c, values) > 0:
             nonzero += 1
         for row, v in values.items():
-            for col in MEASURE_COLS:
+            for col in lay["m"]:
                 ws["%s%d" % (col, row)] = v
             written[row] = v
     wb.calculation.fullCalcOnLoad = True  # Excel пересчитает формулы N, O, Q, S при открытии

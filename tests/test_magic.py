@@ -13,7 +13,16 @@ def make_sheet(path, channels):
     import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws["J1"] = "Измеренное значение выходного сигнала"
+    head1 = {"A": "№", "B": "KKS", "C": "Наименование параметра", "D": "Диапазон измерения ИК",
+             "G": "Контрольная точка", "J": "Измеренное значение выходного сигнала",
+             "O": "Погрешность ИК", "R": "Значение допустимой погрешности ИК, %"}
+    head2 = {"D": "Нижняя граница", "E": "Верхняя граница", "F": "Ед.изм.", "G": "% ",
+             "H": "Значение входного сигнала ", "I": "Значение выходного сигнала",
+             "J": 1, "K": 2, "L": 3, "M": 4, "O": "ЭТ ИК", "P": "ПИП ИК", "Q": "ИК"}
+    for c, v in head1.items():
+        ws[c + "1"] = v
+    for c, v in head2.items():
+        ws[c + "2"] = v
     r = 4
     for n, (low, high, p, allowed) in enumerate(channels, start=1):
         ws["A%d" % r], ws["B%d" % r], ws["C%d" % r] = n, "KKS%03d" % n, "Канал %d" % n
@@ -54,6 +63,25 @@ class MagicTest(unittest.TestCase):
             _, w1, _ = magic.run(src, 40)
             _, w2, _ = magic.run(src, 40)
             self.assertNotEqual(w1, w2)
+
+    def test_shifted_layout_like_ges6(self):
+        """ГЭС-6: нет столбца «№», всё сдвинуто на один влево."""
+        import openpyxl
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src.xlsx")
+            make_sheet(src, [(-50, 200, 0.52, 0.612)] * 10)
+            wb = openpyxl.load_workbook(src)
+            wb.active.delete_cols(1)
+            wb.save(src)
+            _, written, st = magic.run(src, 50, rng=random.Random(3))
+            self.assertEqual((st["channels"], st["nonzero"]), (10, 5))
+            ws = openpyxl.load_workbook(_).active
+            self.assertIsNotNone(ws["I5"].value)  # измерения легли в I..L
+            self.assertIsNone(ws["M5"].value)
+            chs = data.channels_from_rows(data.rows_from_xlsx(src, overrides=written))
+            for c in chs:
+                data.calc_channel(c)
+            self.assertEqual([c.verdict for c in chs], ["Годен"] * 10)
 
     def test_filled_channels_untouched(self):
         import openpyxl
