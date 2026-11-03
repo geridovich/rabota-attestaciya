@@ -52,20 +52,32 @@ def tab_box(root, index):
 
 
 def mark(img, marks, scale):
-    d = ImageDraw.Draw(img)
+    """Рамки и красные номера. Номер ставится снаружи рамки на поле вокруг скриншота,
+    чтобы не обрезался краем картинки и не закрывал соседние кнопки."""
+    r = int(15 * scale)
+    m = 3 * r  # поле вокруг скриншота
+    out = Image.new("RGB", (img.width + 2 * m, img.height + 2 * m), "white")
+    out.paste(img, (m, m))
+    d = ImageDraw.Draw(out)
     try:
-        font = ImageFont.truetype("arialbd.ttf", int(22 * scale))
+        font = ImageFont.truetype("arialbd.ttf", int(19 * scale))
     except OSError:
         font = ImageFont.load_default()
-    r = int(17 * scale)
-    for n, (x0, y0, x1, y1), corner in marks:
+    for n, (x0, y0, x1, y1), side in marks:
+        x0, y0, x1, y1 = x0 + m, y0 + m, x1 + m, y1 + m
         d.rectangle((x0, y0, x1, y1), outline=RED, width=max(2, int(3 * scale)))
-        cx, cy = (x0, y0) if corner == "tl" else (x1, y0)
+        gap = r + int(4 * scale)
+        cx, cy = {
+            "l": (x0 - gap, (y0 + y1) / 2), "r": (x1 + gap, (y0 + y1) / 2),
+            "t": ((x0 + x1) / 2, y0 - gap), "b": ((x0 + x1) / 2, y1 + gap),
+            "tl": (x0 - gap, y0 - gap), "tr": (x1 + gap, y0 - gap),
+            "in": (x0 + gap, y0 + gap),
+        }[side]
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=RED, outline="white", width=2)
         t = str(n)
         tw, th = d.textbbox((0, 0), t, font=font)[2:]
         d.text((cx - tw / 2, cy - th / 2 - 2), t, fill="white", font=font)
-    return img
+    return out
 
 
 def shot(root):
@@ -102,15 +114,15 @@ def main(xlsx):
     magic_box = (magic_btn[0] - 30, magic_btn[1] - 6, magic_btn[2] + 30, magic_btn[3] + int(60 * s))
     excel = b("Открыть Excel…")
     marks = [
-        (1, (b("Вставить из буфера")[0], excel[1], b("Полечить файл")[0] - 2, excel[3]), "tl"),
-        (2, b("Полечить файл"), "tr"),
-        (3, magic_box, "tl"),
-        (4, (tree[0], tree[1], tree[2], tree[3]), "tl"),
-        (5, box(a, find(a, "Документы")), "tl"),
-        (6, box(a, find(a, "Даты протоколов (дата в виде 07.07.2026)")), "tl"),
-        (7, box(a, find(a, "Создать")), "tl"),
-        (8, b("♪ выкл"), "tr"),
-        (9, tab_box(a, 1), "tr"),
+        (1, (b("Вставить из буфера")[0], excel[1], b("Полечить файл")[0] - 2, excel[3]), "l"),
+        (2, b("Полечить файл"), "t"),
+        (3, magic_box, "in"),
+        (4, (tree[0], tree[1], tree[2], tree[3]), "l"),
+        (5, box(a, find(a, "Документы")), "r"),
+        (6, box(a, find(a, "Даты протоколов (дата в виде 07.07.2026)")), "r"),
+        (7, box(a, find(a, "Создать")), "r"),
+        (8, b("♪ выкл"), "t"),
+        (9, tab_box(a, 1), "t"),
     ]
     img = mark(shot(a).convert("RGB"), marks, s)
     img.save(os.path.join(OUT, "help_main.png"))
@@ -120,8 +132,8 @@ def main(xlsx):
     a.after(500)
     a.update()
     theme = box(a, a.theme)
-    img = mark(shot(a).convert("RGB"), [(10, (theme[0] - 4, theme[1] - 4, theme[2] + 4, theme[3] + 4), "tr")], s)
-    img.crop((0, 0, img.width // 2, img.height // 2)).save(os.path.join(OUT, "help_settings.png"))
+    img = mark(shot(a).convert("RGB"), [(10, (theme[0] - 4, theme[1] - 4, theme[2] + 4, theme[3] + 4), "r")], s)
+    img.crop((0, 0, int(img.width * 0.55), int(img.height * 0.5))).save(os.path.join(OUT, "help_settings.png"))
     for f in ("help_main.png", "help_settings.png"):
         im = Image.open(os.path.join(OUT, f))
         if im.width > 1000:  # компактнее для exe
