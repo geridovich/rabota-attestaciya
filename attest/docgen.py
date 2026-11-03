@@ -47,6 +47,13 @@ def num(v):
     return fmt(float("%.10g" % v))
 
 
+def err_num(v):
+    """Погрешность в перечне: не больше 3 знаков после запятой (0,574216858 -> 0,574)."""
+    if v is None:
+        return ""
+    return fmt(float("%.3f" % v))
+
+
 def rng_text(ch):
     return "%s…%s" % (num(ch.low), num(ch.high))
 
@@ -253,8 +260,8 @@ def perechen_fields(ch):
     pip_err = ch.pip_err if ch.pip_err is not None else ch.pip_ik
     return {
         "п.№": ch.num, "п.KKS": ch.kks, "п.наим": ch.name,
-        "п.диап": "%s %s" % (rng_text(ch), ch.unit), "п.пип": ch.pip, "п.пип_погр": num(pip_err),
-        "п.ик": num(ch.allowed_value), "п.модуль": ch.module, "п.модуль_погр": num(ch.module_err),
+        "п.диап": "%s %s" % (rng_text(ch), ch.unit), "п.пип": ch.pip, "п.пип_погр": err_num(pip_err),
+        "п.ик": err_num(ch.allowed_value), "п.модуль": ch.module, "п.модуль_погр": err_num(ch.module_err),
     }
 
 

@@ -100,7 +100,8 @@ def protocol(src):
     runs = [r for r in sign[3].iter(W + "r") if r.find(W + "t") is not None]
     under = next(r for r in runs if r.find(W + "rPr/" + W + "u") is not None)
     for r in runs:
-        r.find(W + "t").text = ""
+        if r is not under:
+            r.getparent().remove(r)
     under.find(W + "t").text = "{{ФИО}}"
     return doc
 

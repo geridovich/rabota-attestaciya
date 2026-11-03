@@ -298,7 +298,7 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
     from . import layout
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     ws, lay = layout.pick_sheet(wb)
-    keys = [k for k in COLUMNS if not k.startswith("m")]
+    keys = [k for k in COLUMNS if k not in ("m1", "m2", "m3", "m4")]
     m_std = [col_letter(col_index(COLUMNS["m1"]) + k) for k in range(len(lay["m"]))]
     rows = []
     for n, r in enumerate(ws.iter_rows(min_row=first_row, values_only=True), start=first_row):

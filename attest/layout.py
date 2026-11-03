@@ -90,11 +90,15 @@ def parse_range(text):
 
 def pick_sheet(wb):
     """Первый лист, похожий на лист аттестации; (лист, раскладка)."""
+    best = None
     for ws in wb.worksheets:
         head = [list(r) for r in ws.iter_rows(min_row=1, max_row=2, values_only=True)]
         while len(head) < 2:
             head.append([])
         lay = detect(head[0], head[1])
-        if is_attestation(lay):
-            return ws, lay
+        # из нескольких листов аттестации - тот, где больше столбцов (ПИП, модуль...)
+        if is_attestation(lay) and (best is None or len(lay) > len(best[1])):
+            best = (ws, lay)
+    if best:
+        return best
     raise ValueError("В файле нет листа с «KKS» и «Измеренное значение выходного сигнала» в шапке")
