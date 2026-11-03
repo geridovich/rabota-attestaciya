@@ -97,19 +97,47 @@ def generate_channel(ch, nonzero, rng=_rng):
     pts = sorted(ch["points"], key=lambda p: p["row"])[1:]
     if not nonzero or limit <= 0 or span <= 0 or not pts:
         return out
-    # одна и та же погрешность на всех точках канала, в одну сторону
-    err = rng.uniform(0.15, 0.85) * limit
-    delta = _round(rng.choice((-1, 1)) * err / 100.0 * span, step)
-    # после округления погрешность не должна выйти за границу годности
-    while abs(delta) / span * 100.0 > limit and abs(delta) >= step:
-        delta = _round(delta - math.copysign(step, delta), step)
-    if abs(delta) < step / 2:  # шаг крупный - минимальное заметное отклонение
-        delta = math.copysign(step, delta or 1)
+    # Доли взяты из заполненных Excel заказчика (~1000 каналов с погрешностью):
+    # отклонения в одну сторону; на точках 2..5 нулевых 0/1/2/3 - 34/24/25/17 %;
+    # разных величин отклонения 1/2/3/4 - 59/22/14/5 %; наибольшее отклонение
+    # обычно 0,1-0,4 от границы годности.
+    sign = rng.choice((-1, 1))
+    frac = _pick(rng, ((0.05, 0.15, 30), (0.15, 0.25, 25), (0.25, 0.35, 15),
+                       (0.35, 0.45, 13), (0.45, 0.95, 17)))
+    top = _round(frac * limit / 100.0 * span, step)
+    while top / span * 100.0 > limit and top >= step:  # после округления - не за границу
+        top = _round(top - step, step)
+    if top < step / 2:  # шаг крупный - минимальное заметное отклонение
+        top = step
         if step / span * 100.0 > limit:
             return out
-    for p in pts:
-        out[p["row"]] = _round(p["xd"] + delta, step)
+    n_zero = min(len(pts) - 1, _choice_w(rng, (0, 1, 2, 3), (34, 24, 25, 17)))
+    active = rng.sample(pts, len(pts) - n_zero)
+    levels = [top]
+    for _ in range(_choice_w(rng, (1, 2, 3, 4), (59, 22, 14, 5)) - 1):
+        lvl = _round(rng.uniform(0.3, 1.0) * top, step)
+        if step / 2 <= lvl < top and lvl not in levels:
+            levels.append(lvl)
+    levels = levels[:len(active)]  # наибольшее отклонение (top) всегда остаётся
+    mags = levels + [rng.choice(levels) for _ in range(len(active) - len(levels))]
+    rng.shuffle(mags)
+    for p, m in zip(active, mags):
+        out[p["row"]] = _round(p["xd"] + sign * m, step)
     return out
+
+
+def _choice_w(rng, items, weights):
+    x = rng.uniform(0, sum(weights))
+    for item, w in zip(items, weights):
+        x -= w
+        if x <= 0:
+            return item
+    return items[-1]
+
+
+def _pick(rng, bands):
+    lo, hi, _w = _choice_w(rng, bands, [b[2] for b in bands])
+    return rng.uniform(lo, hi)
 
 
 def point_error(ch, values):

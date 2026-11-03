@@ -63,8 +63,8 @@ class MagicTest(unittest.TestCase):
                   "points": [{"row": 4 + k, "xd": 400.0 * k, "empty": True} for k in range(5)]}
             v = magic.generate_channel(ch, True, rng)
             self.assertEqual(v[4], 0.0)
-            deltas = {round(v[r] - ch["points"][r - 4]["xd"], 6) for r in v if r != 4}
-            self.assertEqual(len(deltas), 1)  # одна погрешность на всех точках, кроме первой
+            deltas = [round(v[r] - ch["points"][r - 4]["xd"], 6) for r in v if r != 4]
+            self.assertLessEqual(len({d > 0 for d in deltas if d}), 1)  # в одну сторону
             self.assertGreater(magic.point_error(ch, v), 0)
 
     def test_random_each_run(self):
