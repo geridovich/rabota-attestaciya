@@ -114,6 +114,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="Очистить", command=self.clear).pack(side="left")
         ttk.Button(bar, text="Рассчитать", command=self.recalc).pack(side="left", padx=4)
         ttk.Button(bar, text="Копировать результаты", command=self.copy_results).pack(side="left")
+        ttk.Button(bar, text="Ошибки…", command=self.show_errors).pack(side="left", padx=4)
         self.music_btn = ttk.Button(bar, text="♪ выкл", width=8, command=self.toggle_music)
         self.music_btn.pack(side="right")
         self.status = ttk.Label(bar, text="")
@@ -569,6 +570,63 @@ class App(tk.Tk):
         head = "%s  %s  (%s … %s %s)\n" % (ch.kks, ch.name, calcd.fmt(ch.low), calcd.fmt(ch.high), ch.unit)
         body = calcd.report(ch.result, self._digits()) if ch.result else "Ошибка: " + ch.error
         self.detail.insert("1.0", head + "\n" + body)
+
+    def show_errors(self):
+        """Окно: в каких каналах ошибки, в какой ячейке, почему и что сделать."""
+        items = [(i, ch, p) for i, ch in enumerate(self.channels) for p in ch.problems()]
+        if not items:
+            messagebox.showinfo("Ошибки", "Ошибок нет." if self.channels else "Сначала откройте Excel.")
+            return
+        win = tk.Toplevel(self)
+        win.title("Ошибки в данных: %d" % len({i for i, _c, _p in items}))
+        win.geometry("%dx%d" % (self.px(1000), self.px(520)))
+        win.transient(self)
+        sheet = next((ch.sheet for _i, ch, _p in items if ch.sheet), "")
+        ttk.Label(win, text=("Лист «%s». " % sheet if sheet else "") +
+                  "Щелчок по строке - подробности ниже, двойной щелчок - показать канал в таблице.",
+                  style="Hint.TLabel").pack(anchor="w", padx=8, pady=(8, 4))
+        info = tk.Text(win, height=6, wrap="word", font=("Segoe UI", 10))
+        info.pack(side="bottom", fill="x", padx=8, pady=8)  # до таблицы, чтобы не вытеснялось
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=8)
+        cols = (("num", "№", 60), ("kks", "KKS", 140), ("where", "Где", 150),
+                ("value", "Что в ячейке", 130), ("why", "Почему это ошибка", 480))
+        tree = ttk.Treeview(frame, columns=[c[0] for c in cols], show="headings", height=8)
+        for key, title, w in cols:
+            tree.heading(key, text=title)
+            tree.column(key, width=self.px(w), anchor="w")
+        ys = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=ys.set)
+        tree.pack(side="left", fill="both", expand=True)
+        ys.pack(side="right", fill="y")
+        for k, (i, ch, p) in enumerate(items):
+            tree.insert("", "end", iid=str(k), values=(ch.num, ch.kks, p.where, p.value, p.why))
+        pal = themes.PALETTES.get(self.settings["theme"], {})
+        if pal:
+            info.configure(background=pal["field"], foreground=pal["fg"])
+
+        def select(_e=None):
+            sel = tree.selection()
+            if not sel:
+                return
+            _i, ch, p = items[int(sel[0])]
+            info.delete("1.0", "end")
+            info.insert("1.0", "Канал № %s  %s  %s\nГде: %s%s\nПочему: %s\n%s" % (
+                ch.num, ch.kks, ch.name, p.where, ("   (в ячейке: %s)" % p.value) if p.value else "",
+                p.why, ("Что сделать: " + p.fix) if p.fix else ""))
+
+        def goto(_e=None):
+            sel = tree.selection()
+            if not sel:
+                return
+            iid = str(items[int(sel[0])][0])
+            if self.tree.exists(iid):
+                self.tree.selection_set(iid)
+                self.tree.see(iid)
+
+        tree.bind("<<TreeviewSelect>>", select)
+        tree.bind("<Double-1>", goto)
+        tree.selection_set("0")
 
     def copy_results(self):
         d = self._digits()

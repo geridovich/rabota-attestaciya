@@ -166,7 +166,33 @@ class Channel:
     error: str = ""
     pip_fallback: float = None      # значения из настроек, если в данных пусто
     allowed_fallback: float = None
-    bad_cells: list = field(default_factory=list)  # ячейки с не-числом вместо числа
+    bad_cells: list = field(default_factory=list)  # Problem: ячейки с не-числом вместо числа
+    row: int = None      # строка Excel (или строка вставки), с которой начинается канал
+    sheet: str = ""      # лист Excel; пусто - вставка из буфера
+    src: dict = field(default_factory=dict)  # стандартный столбец -> столбец в листе
+
+    def cell(self, letter, row=None):
+        """Адрес ячейки в исходном листе: «P5104»."""
+        n = row if row is not None else self.row
+        if not self.sheet:  # вставка из буфера: адреса в листе не знаем
+            title = COL_TITLES.get(letter, letter)
+            return "%s (строка вставки %s)" % (title, n) if n is not None else title
+        return "%s%s" % (self.src.get(letter, letter), n)
+
+    def problems(self):
+        """Что не так с каналом: [Problem], для окна «Ошибки»."""
+        if self.bad_cells:
+            return list(self.bad_cells)
+        if not self.error:
+            return []
+        if self.high == self.low:
+            return [Problem("%s, %s" % (self.cell("D"), self.cell("E")),
+                            "%s … %s" % (calcd.fmt(self.low), calcd.fmt(self.high)),
+                            "Нижняя и верхняя границы диапазона равны. Приведённая погрешность "
+                            "делится на (верхняя − нижняя), то есть на 0, поэтому посчитать её нельзя.",
+                            "Впишите настоящий диапазон канала в столбцы нижней и верхней границы.")]
+        return [Problem("строки канала с %s" % (self.row if self.row is not None else "?"), "",
+                        self.error[:1].upper() + self.error[1:] + ".", ERROR_FIXES.get(self.error, ""))]
 
     # --- итоговые величины ---
     @property
@@ -215,6 +241,39 @@ class Channel:
         errs = [abs((sum(p.measured) / len(p.measured) - p.xd) / rng * 100)
                 for p in self.points if p.measured]
         return max(errs) if errs else None
+
+
+@dataclass
+class Problem:
+    where: str   # ячейка или строка
+    value: str   # что в ней стоит
+    why: str     # почему это ошибка
+    fix: str = ""  # что сделать
+
+
+COL_TITLES = {
+    "D": "нижняя граница", "E": "верхняя граница", "I": "действительное значение",
+    "J": "измеренное значение 1", "K": "измеренное значение 2", "L": "измеренное значение 3",
+    "M": "измеренное значение 4", "P": "погрешность ПИП в ИК", "U": "погрешность ПИП",
+    "R": "допустимая погрешность",
+}
+
+ERROR_FIXES = {
+    "нет измеренных значений": "Заполните измеренные значения (J..M) или нажмите magic.",
+    "меньше двух точек": "У канала должно быть не меньше двух точек с измерениями.",
+    "нет действительного значения (столбец I)": "Заполните действительное значение или «%» точки.",
+}
+
+
+def why_bad(v):
+    """Почему в ячейке не число - человеческими словами."""
+    s = str(v).strip()
+    if s.startswith("#"):
+        return ("Ошибка формулы Excel %s: формула ссылается на ячейку, в которой не число "
+                "(обычно это соседняя ячейка той же строки)." % s)
+    if s.lower().lstrip("+-") in ("nan", "inf", "infinity") or isinstance(v, float):
+        return "Вместо числа стоит %s (не число / бесконечность)." % s
+    return "Вместо числа стоит текст «%s»." % s
 
 
 FULL_ROW_MIN = 13  # вставка целых строк листа (A..M и дальше)
@@ -271,8 +330,10 @@ def rows_from_text(text):
     width = max(len(ln) for ln in lines) + shift
     rows = []
     if width >= FULL_ROW_MIN + 6:
-        for ln in lines:
-            rows.append({col_letter(i + shift): c for i, c in enumerate(ln)})
+        for n, ln in enumerate(lines, start=1):
+            row = {col_letter(i + shift): c for i, c in enumerate(ln)}
+            row["_row"] = n
+            rows.append(row)
         return rows
 
     # есть ли столбец «%», решаем отдельно для каждого канала
@@ -292,6 +353,7 @@ def rows_from_text(text):
         cells = [""] * shift + ln
         row = {COLUMNS[k]: cells[i] for i, k in enumerate(keys) if i < len(cells)}
         row["_short"] = True
+        row["_row"] = len(rows) + 1  # строка вставки
         if row.get(COLUMNS["kks"]) or row.get(COLUMNS["num"]):
             low = to_float(row.get(COLUMNS["low"])) or 0.0
             high = to_float(row.get(COLUMNS["high"])) or 0.0
@@ -329,6 +391,9 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
         row = {COLUMNS[k]: raw.get(lay[k]) for k in keys if k in lay}
         for std, src in zip(m_std, lay["m"]):
             row[std] = overrides[n] if overrides and n in overrides else raw.get(src)
+        # где это в листе - для окна «Ошибки»
+        row["_row"], row["_sheet"] = n, ws.title
+        row["_src"] = dict({COLUMNS[k]: lay[k] for k in keys if k in lay}, **dict(zip(m_std, lay["m"])))
         if "low" not in lay and lay.get("range") and raw.get(lay["range"]) is not None:
             low, high = layout.parse_range(raw[lay["range"]])
             if low is None and high is None and "unit" not in lay:
@@ -384,19 +449,23 @@ def channels_from_rows(rows):
                 allowed=allowed if allowed is not None else to_float(g(row, "allowed_ik")),
                 notes=to_text(g(row, "notes")),
             )
+            cur.row, cur.sheet, cur.src = row.get("_row"), row.get("_sheet", ""), row.get("_src", {})
             channels.append(cur)
-            cur.bad_cells += [COLUMNS[k] for k in ("low", "high", "pip_ik", "pip_err", "allowed")
-                              if bad_number(g(row, k))]
         if cur is None:
             continue
         if not cur.unit and to_text(g(row, "unit")):
             cur.unit = to_text(g(row, "unit"))
         bad = []
         measured = measured_values(row, bad)
-        if bad_number(g(row, "output")):
-            bad.append(COLUMNS["output"])
-        if bad:
-            cur.bad_cells.append("%s (точка %d)" % (", ".join(bad), len(cur.points) + 1))
+        keys = ["output"] + (["low", "high", "pip_ik", "pip_err", "allowed"] if cur.row == row.get("_row") else [])
+        bad += [COLUMNS[k] for k in keys if bad_number(g(row, k))]
+        for letter in sorted(bad):
+            what = COL_TITLES.get(letter, "")
+            cur.bad_cells.append(Problem(
+                cur.cell(letter, row.get("_row")), to_text(row.get(letter)),
+                why_bad(row.get(letter)) + (" Столбец: %s." % what if what else ""),
+                "Исправьте ячейки, на которые ссылается формула (в них должны быть числа)."
+                if to_text(row.get(letter)).startswith("#") else "Впишите в ячейку число."))
         if not measured:
             continue
         pct = to_float(g(row, "pct"))
@@ -423,7 +492,9 @@ def calc_channel(ch, qm=20):
     ch.result, ch.error = None, ""
     try:
         if ch.bad_cells:
-            raise calcd.CalcError("не число в ячейках: " + "; ".join(ch.bad_cells))
+            raise calcd.CalcError("не число в ячейках: " + ", ".join(p.where for p in ch.bad_cells))
+        if ch.high == ch.low:
+            raise calcd.CalcError("нулевой диапазон (нижняя граница = верхней)")
         if len(ch.points) < 2:
             raise calcd.CalcError("нет измеренных значений" if not ch.points else "меньше двух точек")
         if any(p.xd is None for p in ch.points):

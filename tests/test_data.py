@@ -157,13 +157,19 @@ class BadValues(unittest.TestCase):
 
     def test_nan_allowed(self):
         ch = sheet_channel(allowed="NaN")
-        self.assertIn("R", ch.error)
+        self.assertIn("допустимая погрешность", ch.error)
         self.assertEqual(ch.verdict, "")
 
-    def test_zero_range_is_not_error(self):
-        """Канал 0…0 (задание нагрузки) - не ошибка, по просьбе пользователя."""
+    def test_zero_range(self):
         ch = sheet_channel(low=0, high=0)
-        self.assertEqual(ch.error, "")
+        self.assertIn("нулевой диапазон", ch.error)
+        self.assertIn("на 0", ch.problems()[0].why)
+
+    def test_problem_points_to_cell(self):
+        ch = sheet_channel(allowed="#VALUE!")
+        p = ch.problems()[0]
+        self.assertIn("ошибка формулы", p.why.lower())
+        self.assertEqual(p.value, "#VALUE!")
 
 
 if __name__ == "__main__":
