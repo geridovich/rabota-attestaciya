@@ -46,19 +46,30 @@ def parse_columns_spec(spec):
 
 
 def to_float(v):
-    if v is None:
+    """Число из ячейки; пусто, текст, NaN и бесконечность -> None."""
+    if v is None or isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return float(v)
+        return float(v) if math.isfinite(v) else None
     s = str(v).strip().replace(" ", "").replace("−", "-").replace(" ", "").replace(",", ".")
     if s.endswith("%"):
         s = s[:-1]
     if not s:
         return None
     try:
-        return float(s)
+        f = float(s)
     except ValueError:
         return None
+    return f if math.isfinite(f) else None
+
+
+def is_blank(v):
+    return v is None or not str(v).strip()
+
+
+def bad_number(v):
+    """В ячейке что-то есть, но это не число («ОШИБКА», NaN, #ДЕЛ/0!)."""
+    return not is_blank(v) and to_float(v) is None
 
 
 def to_text(v):
@@ -155,6 +166,7 @@ class Channel:
     error: str = ""
     pip_fallback: float = None      # значения из настроек, если в данных пусто
     allowed_fallback: float = None
+    bad_cells: list = field(default_factory=list)  # ячейки с не-числом вместо числа
 
     # --- итоговые величины ---
     @property
@@ -187,9 +199,12 @@ class Channel:
 
     @property
     def verdict(self):
-        if self.total is None or self.allowed_value is None:
+        total, allowed = self.total, self.allowed_value
+        if self.error or total is None or allowed is None:
             return ""
-        return "Не годен" if self.total > self.allowed_value else "Годен"
+        if not (math.isfinite(total) and math.isfinite(allowed)):
+            return ""  # NaN в сравнении даёт False - без проверки вышло бы «Годен»
+        return "Не годен" if total > allowed else "Годен"
 
     @property
     def excel_err(self):
@@ -325,14 +340,21 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
     return rows
 
 
-def measured_values(row):
-    """Измерения: J..M в листе, во вставке жёлтых столбцов - все после действительного."""
+def measured_values(row, bad=None):
+    """Измерения: J..M в листе, во вставке жёлтых столбцов - все после действительного.
+
+    Пустые ячейки пропускаются, а не-числа записываются в bad (буква столбца),
+    чтобы не считать канал по неполному ряду молча.
+    """
     last = col_index(COLUMNS["m4"]) if not row.get("_short") else 200
     out = []
     for i in range(col_index(COLUMNS["m1"]), last + 1):
-        v = to_float(row.get(col_letter(i)))
+        raw = row.get(col_letter(i))
+        v = to_float(raw)
         if v is not None:
             out.append(v)
+        elif bad is not None and bad_number(raw):
+            bad.append(col_letter(i))
     return out
 
 
@@ -363,11 +385,18 @@ def channels_from_rows(rows):
                 notes=to_text(g(row, "notes")),
             )
             channels.append(cur)
+            cur.bad_cells += [COLUMNS[k] for k in ("low", "high", "pip_ik", "pip_err", "allowed")
+                              if bad_number(g(row, k))]
         if cur is None:
             continue
         if not cur.unit and to_text(g(row, "unit")):
             cur.unit = to_text(g(row, "unit"))
-        measured = measured_values(row)
+        bad = []
+        measured = measured_values(row, bad)
+        if bad_number(g(row, "output")):
+            bad.append(COLUMNS["output"])
+        if bad:
+            cur.bad_cells.append("%s (точка %d)" % (", ".join(bad), len(cur.points) + 1))
         if not measured:
             continue
         pct = to_float(g(row, "pct"))
@@ -393,6 +422,10 @@ def calc_channel(ch, qm=20):
     """Ряд собирается «по точкам подряд» (режим 0 CalcD), как при ручном вводе."""
     ch.result, ch.error = None, ""
     try:
+        if ch.bad_cells:
+            raise calcd.CalcError("не число в ячейках: " + "; ".join(ch.bad_cells))
+        if ch.high == ch.low:
+            raise calcd.CalcError("нулевой диапазон (нижняя граница = верхней)")
         if len(ch.points) < 2:
             raise calcd.CalcError("нет измеренных значений" if not ch.points else "меньше двух точек")
         if any(p.xd is None for p in ch.points):

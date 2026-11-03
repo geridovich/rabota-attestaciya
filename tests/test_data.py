@@ -131,5 +131,40 @@ class PasteTest(unittest.TestCase):
         self.assertEqual(len(ch.points), 5)
 
 
+def sheet_channel(m1="0", allowed=1.0, low=0, high=100):
+    """Канал из строк листа: 3 точки, допуск в R."""
+    rows = [{"A": 1, "B": "10HBK50CQ004", "C": "Давление", "D": low, "E": high, "F": "кПа",
+             "I": 0, "J": m1, "K": 0, "R": allowed},
+            {"I": 50, "J": 50, "K": 50},
+            {"I": 100, "J": 100, "K": 100}]
+    ch = data.channels_from_rows(rows)[0]
+    return data.calc_channel(ch, 20)
+
+
+class BadValues(unittest.TestCase):
+    """Отчёт тестирования PU-01, PU-05, PU-11: не-числа не должны давать «Годен»."""
+
+    def test_good_channel(self):
+        ch = sheet_channel()
+        self.assertEqual(ch.error, "")
+        self.assertEqual(ch.verdict, "Годен")
+
+    def test_nan_measurement(self):
+        for v in ("NaN", float("nan"), "inf", "ОШИБКА", "#ДЕЛ/0!"):
+            ch = sheet_channel(m1=v)
+            self.assertIn("не число", ch.error, v)
+            self.assertEqual(ch.verdict, "", v)
+
+    def test_nan_allowed(self):
+        ch = sheet_channel(allowed="NaN")
+        self.assertIn("R", ch.error)
+        self.assertEqual(ch.verdict, "")
+
+    def test_zero_range(self):
+        ch = sheet_channel(low=0, high=0)
+        self.assertIn("нулевой диапазон", ch.error)
+        self.assertIsNone(ch.result)
+
+
 if __name__ == "__main__":
     unittest.main()

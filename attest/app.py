@@ -1,4 +1,5 @@
 """Plus Ultra: каналы из Excel -> расчёт коэффициентов -> протоколы и перечень в Word."""
+import datetime
 import json
 import os
 import re
@@ -18,6 +19,8 @@ DATE_RANGES = 15  # строк «с № по № - дата»
 HEALED_DIR = "Вылеченные файлы Excel"
 MAGIC_DIR = "Заполненные измерения (magic)"
 DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+QM_MIN, QM_MAX = 8, 200  # таблица Стьюдента CalcD начинается с n-1 = 4, кратно 4 -> не меньше 8
+DIGITS_MAX = 15
 DEFAULTS = {
     "pip": "", "allowed": "", "qm": 20, "digits": 4, "batch": 20,
     "out_dir": os.path.join(APP_DIR, "Документы"), "theme": themes.DEFAULT,
@@ -299,6 +302,8 @@ class App(tk.Tk):
             return
         self._magic_busy = False
         self.config(cursor="")
+        if self.xlsx_path != path:
+            return  # пока шла обработка, данные очистили или открыли другой файл
         if "error" in box:
             self.refresh()
             messagebox.showerror("Magic", "Не получилось: %s" % box["error"])
@@ -337,7 +342,8 @@ class App(tk.Tk):
         self.theme.bind("<<ComboboxSelected>>", lambda _e: self.apply_theme(self.theme.get()))
         row("Цветовая палитра:", self.theme)
         self.qm = tk.IntVar(value=s["qm"])
-        row("Измерений в точке:", ttk.Spinbox(tab, from_=4, to=200, increment=4, width=6, textvariable=self.qm))
+        row("Измерений в точке:", ttk.Spinbox(tab, from_=QM_MIN, to=QM_MAX, increment=4, width=6,
+                                              textvariable=self.qm))
         self.digits = tk.IntVar(value=s["digits"])
         row("Знаков после запятой в таблице:", ttk.Spinbox(tab, from_=0, to=15, width=6, textvariable=self.digits))
         self.pip_default = tk.StringVar(value=s["pip"])
@@ -489,9 +495,13 @@ class App(tk.Tk):
             return
         finally:
             self.config(cursor="")
+        chs = data.channels_from_rows(rows)
+        if not chs:  # прежний файл и таблица остаются как были
+            self.add_channels(chs)
+            return
         self.xlsx_path = path
         self.channels = []
-        self.add_channels(data.channels_from_rows(rows))
+        self.add_channels(chs)
 
     def add_channels(self, chs):
         if not chs:
@@ -511,6 +521,11 @@ class App(tk.Tk):
 
     def recalc(self):
         qm = self._int(self.qm, 20)
+        if qm < QM_MIN or qm > QM_MAX or qm % 4:
+            qm = max(QM_MIN, min(QM_MAX, qm - qm % 4))
+            self.qm.set(qm)
+            messagebox.showwarning("Измерений в точке", "Число измерений должно быть кратно 4, от %d до %d. "
+                                   "Поставлено %d." % (QM_MIN, QM_MAX, qm))
         pip = data.to_float(self.pip_default.get())
         allowed = data.to_float(self.allowed_default.get())
         for ch in self.channels:
@@ -524,8 +539,15 @@ class App(tk.Tk):
         except (tk.TclError, ValueError):
             return default
 
-    def refresh(self):
+    def _digits(self):
         d = self._int(self.digits, 4)
+        if not 0 <= d <= DIGITS_MAX:
+            d = max(0, min(DIGITS_MAX, d))
+            self.digits.set(d)
+        return d
+
+    def refresh(self):
+        d = self._digits()
         f = lambda v: calcd.fmt(v, d)
         self.tree.delete(*self.tree.get_children())
         for i, ch in enumerate(self.channels):
@@ -541,15 +563,15 @@ class App(tk.Tk):
     def show_detail(self, _=None):
         sel = self.tree.selection()
         self.detail.delete("1.0", "end")
-        if not sel:
+        if not sel or int(sel[0]) >= len(self.channels):
             return
         ch = self.channels[int(sel[0])]
         head = "%s  %s  (%s … %s %s)\n" % (ch.kks, ch.name, calcd.fmt(ch.low), calcd.fmt(ch.high), ch.unit)
-        body = calcd.report(ch.result, self._int(self.digits, 4)) if ch.result else "Ошибка: " + ch.error
+        body = calcd.report(ch.result, self._digits()) if ch.result else "Ошибка: " + ch.error
         self.detail.insert("1.0", head + "\n" + body)
 
     def copy_results(self):
-        d = self._int(self.digits, 4)
+        d = self._digits()
         lines = ["№\tKKS\tНаименование\ta1\ta2\tb1\tb2\tgh\tgl\tЭТ ИК\tПИП\tОбщая\tДопуст.\tРезультат"]
         for ch in self.channels:
             r = ch.result
@@ -591,6 +613,11 @@ class App(tk.Tk):
             if not DATE_RE.match(d):
                 errors.append("строка %d: дата «%s» не в виде 07.07.2026" % (i + 1, d))
                 continue
+            try:
+                datetime.datetime.strptime(d, "%d.%m.%Y")
+            except ValueError:
+                errors.append("строка %d: такой даты нет в календаре: %s" % (i + 1, d))
+                continue
             ranges.append((min(a, b), max(a, b), d))
         return ranges, errors
 
@@ -600,7 +627,7 @@ class App(tk.Tk):
         self._generate(self.channels[start:start + batch], start + batch)
 
     def generate_selected(self):
-        sel = [self.channels[int(i)] for i in self.tree.selection()]
+        sel = [self.channels[int(i)] for i in self.tree.selection() if int(i) < len(self.channels)]
         if len(sel) > MAX_BATCH:
             messagebox.showwarning("Слишком много", "Выделите не больше %d каналов." % MAX_BATCH)
             return
