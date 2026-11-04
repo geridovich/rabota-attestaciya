@@ -260,7 +260,21 @@ def calc(values, xd, qm, mode=0):
     for p in points:
         p.dh = gh * rng / 100.0 + b1 * p.xd
         p.dl = gl * rng / 100.0 + b2 * p.xd
+        for name in ("ds", "H", "upper", "lower", "dh", "dl"):
+            setattr(p, name, snap(getattr(p, name)))
+    a1, a2, b1, b2, gh, gl = (snap(v) for v in (a1, a2, b1, b2, gh, gl))
     return CalcResult(points, a1, a2, b1, b2, gh, gl, umax, kstd)
+
+
+NOISE = 1e-9
+
+
+def snap(v):
+    """Шум округления двоичных дробей (1,6 - 0,4 = 1,2000000000000002) - в 0.
+
+    Иначе при точных данных выходят «погрешности» вида -0,0000000000000016721.
+    """
+    return 0.0 if isinstance(v, float) and abs(v) < NOISE else v
 
 
 def fmt(v, digits=None):

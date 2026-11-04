@@ -240,7 +240,7 @@ class Channel:
             return None
         errs = [abs((sum(p.measured) / len(p.measured) - p.xd) / rng * 100)
                 for p in self.points if p.measured]
-        return max(errs) if errs else None
+        return calcd.snap(max(errs)) if errs else None
 
 
 @dataclass
@@ -472,6 +472,8 @@ def channels_from_rows(rows):
         xd = to_float(g(row, "output"))
         if xd is None and pct is not None:  # формула не посчитана - считаем сами
             xd = (cur.high - cur.low) * pct / 100.0 + cur.low
+        if xd is not None:  # формула Excel даёт 1,2000000000000002 вместо 1,2
+            xd = round(xd, 10)
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
     # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны
     return [c for c in channels if c.kks and (c.name or c.high != c.low)]
