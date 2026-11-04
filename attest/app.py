@@ -61,6 +61,8 @@ class App(tk.Tk):
 
         self.style = ttk.Style(self)
         self._fit_to_screen()
+        ttk.Label(self, text="GERA | ATTESTATION SYSTEM", style="Title.TLabel",
+                  anchor="center").pack(fill="x", pady=(4, 0))
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
         self._build_main_tab(nb)
