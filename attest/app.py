@@ -12,7 +12,7 @@ from . import calcd, data, dnd, docgen, heal, magic, themes
 from .music import Sound, asset_path
 
 APP_NAME = "Plus Ultra"
-TITLE = "GERA | ATTESTATION SYSTEM"  # заголовок окна
+TITLE = "GERA | ATTESTATION SYSTEM"  # по центру заголовка окна
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]))
 SETTINGS = os.path.join(APP_DIR, "settings.json")
 MAX_BATCH = 3000  # протоколов в одном документе
@@ -50,7 +50,7 @@ def load_settings():
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(TITLE)
+        self.title(APP_NAME)
         self.scale = max(1.0, self.winfo_fpixels("1i") / 96.0)  # масштаб Windows (125 %, 150 %...)
         self.settings = load_settings()
         self.channels = []
@@ -70,7 +70,8 @@ class App(tk.Tk):
         self.nb = nb
         self.apply_theme(self.settings["theme"])
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.after(100, self._black_title_bar)
+        self._title_width = 0
+        self.bind("<Configure>", self._center_title, add="+")
         # щелчок на все кнопки программы (и в окнах-диалогах ttk)
         self.bind_class("TButton", "<Button-1>", lambda _e: self.click_sound.play(), add="+")
         try:
@@ -90,21 +91,22 @@ class App(tk.Tk):
         except tk.TclError:
             pass
 
-    def _black_title_bar(self):
-        """Заголовок окна чёрный с белым текстом: Windows 11 - цвета DWM,
-        Windows 10 - тёмный режим заголовка. На Vista/7/8 остаётся обычный."""
-        if sys.platform != "win32":
+    def _center_title(self, _e=None):
+        """«GERA | ATTESTATION SYSTEM» по центру заголовка окна.
+
+        Windows пишет заголовок от левого края, поэтому после «Plus Ultra»
+        ставятся пробелы - столько, чтобы вторая надпись встала в центр.
+        """
+        w = self.winfo_width()
+        if w == self._title_width or w < 50:
             return
-        import ctypes
-        try:
-            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-            dwm = ctypes.windll.dwmapi.DwmSetWindowAttribute
-            for attr, value in ((20, 1), (19, 1),            # тёмный заголовок (Win10 2004+ / 1809)
-                                (35, 0x000000), (36, 0xFFFFFF)):  # Win11: фон чёрный, текст белый
-                v = ctypes.c_int(value)
-                dwm(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
-        except (AttributeError, OSError):
-            pass
+        self._title_width = w
+        import tkinter.font as tkfont
+        font = tkfont.Font(family="Segoe UI", size=9)  # шрифт заголовка Windows
+        left = self.px(36)  # значок окна и отступ до текста
+        gap = (w - font.measure(TITLE)) / 2 - left - font.measure(APP_NAME)
+        n = max(3, int(gap / max(1, font.measure(" "))))
+        self.title(APP_NAME + " " * n + TITLE)
 
     def px(self, n):
         return int(n * self.scale)
