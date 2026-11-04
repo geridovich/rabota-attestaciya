@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import calcd, data, dnd, docgen, heal, magic, themes
-from .music import Music, Sound, asset_path
+from .music import Sound, asset_path
 
 APP_NAME = "Plus Ultra"
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]))
@@ -26,6 +26,7 @@ DEFAULTS = {
     "out_dir": os.path.join(APP_DIR, "Документы"), "theme": themes.DEFAULT,
     "station": "САУГ КА-4 ТЭЦ-17", "perechen": "ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)",
     "executor": 0, "dates": [["", "", ""] for _ in range(DATE_RANGES)],
+    "click_sound": True, "magic_sound": True,
 }
 
 COLS = (("num", "№", 35), ("kks", "KKS", 100), ("name", "Наименование", 160), ("range", "Диапазон", 80),
@@ -52,8 +53,8 @@ class App(tk.Tk):
         self.scale = max(1.0, self.winfo_fpixels("1i") / 96.0)  # масштаб Windows (125 %, 150 %...)
         self.settings = load_settings()
         self.channels = []
-        self.music = Music()
-        self.magic_sound = Sound("magic.mp3", "plusultra_magic")
+        self.click_sound = Sound("click.mp3", "plusultra_click", bool(self.settings["click_sound"]))
+        self.magic_sound = Sound("magic.mp3", "plusultra_magic", bool(self.settings["magic_sound"]))
         self.xlsx_path = None  # Excel, открытый кнопкой «Открыть Excel…» (нужен для magic)
         self._set_icon()
         self.texts = []  # tk.Text - их цвета задаются вручную
@@ -68,7 +69,8 @@ class App(tk.Tk):
         self.nb = nb
         self.apply_theme(self.settings["theme"])
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.after(2000, self._music_tick)
+        # щелчок на все кнопки программы (и в окнах-диалогах ttk)
+        self.bind_class("TButton", "<Button-1>", lambda _e: self.click_sound.play(), add="+")
         try:
             dnd.enable(self, self.on_drop)  # перетаскивание Excel в окно
         except (OSError, AttributeError, ValueError):
@@ -115,8 +117,9 @@ class App(tk.Tk):
         ttk.Button(bar, text="Рассчитать", command=self.recalc).pack(side="left", padx=4)
         ttk.Button(bar, text="Копировать результаты", command=self.copy_results).pack(side="left")
         ttk.Button(bar, text="Ошибки…", command=self.show_errors).pack(side="left", padx=4)
-        self.music_btn = ttk.Button(bar, text="♪ выкл", width=8, command=self.toggle_music)
-        self.music_btn.pack(side="right")
+        self.click_btn = ttk.Button(bar, width=8, command=self.toggle_click_sound)
+        self.click_btn.pack(side="right")
+        self._click_btn_text()
         self.status = ttk.Label(bar, text="")
         self.status.pack(side="right", padx=8)
 
@@ -351,6 +354,10 @@ class App(tk.Tk):
         row("ПИП, % (если нет в данных):", ttk.Entry(tab, width=8, textvariable=self.pip_default))
         self.allowed_default = tk.StringVar(value=s["allowed"])
         row("Допустимая, % (если нет в данных):", ttk.Entry(tab, width=8, textvariable=self.allowed_default))
+        self.magic_sound_on = tk.BooleanVar(value=self.magic_sound.enabled)
+        row("Звук кнопки magic:", ttk.Checkbutton(
+            tab, text="включён", variable=self.magic_sound_on,
+            command=lambda: setattr(self.magic_sound, "enabled", self.magic_sound_on.get())))
         out = ttk.Frame(tab)
         self.out_dir = tk.StringVar(value=s["out_dir"])
         ttk.Entry(out, textvariable=self.out_dir, width=50).pack(side="left")
@@ -383,8 +390,11 @@ class App(tk.Tk):
         ("7", "Создать", "«Протоколы» - один Word со всеми протоколами (число в документе ставится само), "
                          "«Только выделенные» - по выделенным строкам таблицы, «Перечень» - перечень и "
                          "градуировочные таблицы, «Открыть папку» - папка с документами и подпапками."),
-        ("8", "Музыка", "Кнопка ♪ включает и выключает музыку."),
-        ("9", "Настройки", "Цветовая палитра, число измерений в точке, папка для документов."),
+        ("8", "Звук кнопок", "Кнопка ♪ в правом верхнем углу включает и выключает щелчок, который "
+                             "слышно при нажатии на любую кнопку программы. «♪ вкл» - щелчок есть, "
+                             "«♪ выкл» - кнопки нажимаются молча. Выбор запоминается до следующего запуска."),
+        ("9", "Настройки", "Цветовая палитра, число измерений в точке, папка для документов, "
+                           "звук кнопки magic (галочку можно снять, чтобы magic работал без звука)."),
     )
 
     def _build_help_tab(self, nb):
@@ -439,7 +449,7 @@ class App(tk.Tk):
         self._help_imgs.append(img)
         tk.Label(parent, image=img, borderwidth=1, relief="solid").pack(anchor="w", pady=(0, 8))
 
-    # ---------- темы и музыка ----------
+    # ---------- темы и звук ----------
     def apply_theme(self, name):
         pal = themes.apply(self.style, name, self)
         for t in self.texts:
@@ -451,15 +461,14 @@ class App(tk.Tk):
         self.help_canvas.configure(background=pal["bg"])
         self.settings["theme"] = name
 
-    def toggle_music(self):
-        on = self.music.toggle()
-        self.music_btn.config(text="♪ вкл" if on else "♪ выкл")
-        if not on and not os.path.exists(self.music.path):
-            messagebox.showwarning("Нет музыки", "Файл музыки не найден.")
+    def toggle_click_sound(self):
+        """Кнопка ♪: звук нажатия кнопок вкл/выкл."""
+        self.click_sound.enabled = not self.click_sound.enabled
+        self._click_btn_text()
+        self.click_sound.play()  # сразу слышно, что звук включился
 
-    def _music_tick(self):
-        self.music.keep_looping()
-        self.after(2000, self._music_tick)
+    def _click_btn_text(self):
+        self.click_btn.config(text="♪ вкл" if self.click_sound.enabled else "♪ выкл")
 
     # ---------- данные ----------
     def paste_clipboard(self):
@@ -746,13 +755,14 @@ class App(tk.Tk):
              "theme": self.settings["theme"], "station": self.station.get(),
              "perechen": self.perechen.get(), "executor": self.executor.current(),
              "dates": [[v.get() for v in row] for row in self.date_vars],
-             "magic_pct": self.magic_pct.get()}
+             "magic_pct": self.magic_pct.get(),
+             "click_sound": self.click_sound.enabled, "magic_sound": self.magic_sound.enabled}
         try:
             with open(SETTINGS, "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=1)
         except OSError:
             pass
-        self.music.close()
+        self.click_sound.close()
         self.magic_sound.close()
         self.destroy()
 
