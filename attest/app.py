@@ -135,7 +135,6 @@ class App(tk.Tk):
         ttk.Button(bar, text="Полечить файл", command=self.heal_file).pack(side="left", padx=4)
         ttk.Button(bar, text="Очистить", command=self.clear).pack(side="left")
         ttk.Button(bar, text="Рассчитать", command=self.recalc).pack(side="left", padx=4)
-        ttk.Button(bar, text="Копировать результаты", command=self.copy_results).pack(side="left")
         ttk.Button(bar, text="Ошибки…", command=self.show_errors).pack(side="left", padx=4)
         self.click_btn = ttk.Button(bar, width=8, command=self.toggle_click_sound)
         self.click_btn.pack(side="right")
@@ -413,22 +412,19 @@ class App(tk.Tk):
                          "ошибка формулы #VALUE!, нулевой диапазон, нет измерений. Щелчок по строке "
                          "показывает внизу, что исправить, двойной щелчок находит канал в главной таблице. "
                          "Каналы с ошибками в протоколы не попадают."),
-        ("7", "Копировать результаты", "Копирует таблицу результатов всех каналов (№, KKS, наименование, "
-                                       "a1, a2, b1, b2, gh, gl, ЭТ ИК, ПИП, общая и допустимая погрешность, "
-                                       "результат). Дальше откройте Excel и вставьте (Ctrl+V)."),
-        ("8", "Очистить", "Убирает все каналы из программы, чтобы начать с другим файлом. "
+        ("7", "Очистить", "Убирает все каналы из программы, чтобы начать с другим файлом. "
                           "Сам Excel при этом не меняется."),
-        ("9", "Документы", "Впишите окончание заголовка протокола («…аттестации ИК САУГ КА-4 ТЭЦ-17»), "
+        ("8", "Документы", "Впишите окончание заголовка протокола («…аттестации ИК САУГ КА-4 ТЭЦ-17»), "
                            "название перечня и выберите, кто делал протоколы."),
-        ("10", "Даты протоколов", "До 15 строк «с № по № - дата», например 1-10 и 07.07.2026. "
+        ("9", "Даты протоколов", "До 15 строк «с № по № - дата», например 1-10 и 07.07.2026. "
                                   "Номер протокола - это № канала из Excel."),
-        ("11", "Создать", "«Протоколы» - один Word со всеми протоколами (число в документе ставится само), "
+        ("10", "Создать", "«Протоколы» - один Word со всеми протоколами (число в документе ставится само), "
                           "«Только выделенные» - по выделенным строкам таблицы, «Перечень» - перечень и "
                           "градуировочные таблицы, «Открыть папку» - папка с документами и подпапками."),
-        ("12", "Звук кнопок", "Кнопка ♪ в правом верхнем углу включает и выключает щелчок, который "
+        ("11", "Звук кнопок", "Кнопка ♪ в правом верхнем углу включает и выключает щелчок, который "
                               "слышно при нажатии на любую кнопку программы. «♪ вкл» - щелчок есть, "
                               "«♪ выкл» - кнопки нажимаются молча. Выбор запоминается до следующего запуска."),
-        ("13", "Настройки", "Цветовая палитра, число измерений в точке, папка для документов, "
+        ("12", "Настройки", "Цветовая палитра, число измерений в точке, папка для документов, "
                             "звук кнопки magic (галочку можно снять, чтобы magic работал без звука)."),
     )
 
@@ -469,9 +465,9 @@ class App(tk.Tk):
             lbl = ttk.Label(col, text=text, wraplength=self.px(820), justify="left")
             lbl.pack(anchor="w")
             self._help_texts.append(lbl)
-        ttk.Label(page, text="Настройки (14 - цветовая палитра, 15 - звук кнопки magic)", style="Bold.TLabel").pack(anchor="w", pady=(12, 4))
+        ttk.Label(page, text="Настройки (13 - цветовая палитра, 14 - звук кнопки magic)", style="Bold.TLabel").pack(anchor="w", pady=(12, 4))
         self._help_image(page, "help_settings.png")
-        ttk.Label(page, text="Обычный порядок: 1 → (2) → (3) → 5 → (6) → 9 → 10 → 11. "
+        ttk.Label(page, text="Обычный порядок: 1 → (2) → (3) → 5 → (6) → 8 → 9 → 10. "
                                     "В скобках - если нужно.", style="Bold.TLabel").pack(anchor="w", pady=(12, 0))
 
     def _help_image(self, parent, name):
@@ -672,18 +668,6 @@ class App(tk.Tk):
         tree.bind("<<TreeviewSelect>>", select)
         tree.bind("<Double-1>", goto)
         tree.selection_set("0")
-
-    def copy_results(self):
-        d = self._digits()
-        lines = ["№\tKKS\tНаименование\ta1\ta2\tb1\tb2\tgh\tgl\tЭТ ИК\tПИП\tОбщая\tДопуст.\tРезультат"]
-        for ch in self.channels:
-            r = ch.result
-            nums = [r.a1, r.a2, r.b1, r.b2, r.gh, r.gl] if r else [None] * 6
-            nums += [ch.et_ik, ch.pip_value, ch.total, ch.allowed_value]
-            lines.append("\t".join([ch.num, ch.kks, ch.name] + [calcd.fmt(v, d) for v in nums] + [ch.verdict]))
-        self.clipboard_clear()
-        self.clipboard_append("\n".join(lines))
-        self.status.config(text="Результаты скопированы — вставьте в Excel (Ctrl+V)")
 
     # ---------- документы ----------
     def pick_out_dir(self):

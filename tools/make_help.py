@@ -120,13 +120,12 @@ def main(xlsx):
         (4, b("Рассчитать"), "t"),
         (5, (tree[0], tree[1], tree[2], tree[3]), "l"),
         (6, b("Ошибки…"), "t"),
-        (7, b("Копировать результаты"), "t"),
-        (8, b("Очистить"), "t"),
-        (9, box(a, find(a, "Документы")), "r"),
-        (10, box(a, find(a, "Даты протоколов (дата в виде 07.07.2026)")), "r"),
-        (11, box(a, find(a, "Создать")), "r"),
-        (12, box(a, a.click_btn), "t"),
-        (13, tab_box(a, 1), "t"),
+        (7, b("Очистить"), "t"),
+        (8, box(a, find(a, "Документы")), "r"),
+        (9, box(a, find(a, "Даты протоколов (дата в виде 07.07.2026)")), "r"),
+        (10, box(a, find(a, "Создать")), "r"),
+        (11, box(a, a.click_btn), "t"),
+        (12, tab_box(a, 1), "t"),
     ]
     img = mark(shot(a).convert("RGB"), marks, s)
     img.save(os.path.join(OUT, "help_main.png"))
@@ -136,8 +135,8 @@ def main(xlsx):
     a.after(500)
     a.update()
     theme, snd = box(a, a.theme), b("включён")
-    img = mark(shot(a).convert("RGB"), [(14, (theme[0] - 4, theme[1] - 4, theme[2] + 4, theme[3] + 4), "r"),
-                                        (15, snd, "r")], s)
+    img = mark(shot(a).convert("RGB"), [(13, (theme[0] - 4, theme[1] - 4, theme[2] + 4, theme[3] + 4), "r"),
+                                        (14, snd, "r")], s)
     img.crop((0, 0, int(img.width * 0.55), int(img.height * 0.5))).save(os.path.join(OUT, "help_settings.png"))
     for f in ("help_main.png", "help_settings.png"):
         im = Image.open(os.path.join(OUT, f))
