@@ -396,8 +396,12 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
         raw = {col_letter(i): v for i, v in enumerate(r)}
         # раскладка листа -> стандартные столбцы (как в ТА-6), дальше всё одинаково
         row = {COLUMNS[k]: raw.get(lay[k]) for k in keys if k in lay}
+        ov = overrides.get(n) if overrides else None
         for std, src in zip(m_std, lay["m"]):
-            row[std] = overrides[n] if overrides and n in overrides else raw.get(src)
+            if isinstance(ov, dict):  # magic дописал только пустые ячейки строки
+                row[std] = ov.get(src, raw.get(src))
+            else:
+                row[std] = ov if ov is not None else raw.get(src)
         # где это в листе - для окна «Ошибки»
         row["_row"], row["_sheet"] = n, ws.title
         row["_src"] = dict({COLUMNS[k]: lay[k] for k in keys if k in lay}, **dict(zip(m_std, lay["m"])))

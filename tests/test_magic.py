@@ -103,9 +103,31 @@ class MagicTest(unittest.TestCase):
             for r in range(4, 9):
                 wb.active["J%d" % r] = 1.5
             wb.save(src)
-            _, written, st = magic.run(src, 60)
+            out, written, st = magic.run(src, 60)
             self.assertEqual(st["channels"], 2)
-            self.assertFalse(any(r in written for r in range(4, 9)))
+            # в заполненном канале введённое (J) не трогается, пустые K..M - тем же значением
+            ws = openpyxl.load_workbook(out).active
+            for r in range(4, 9):
+                self.assertEqual(ws["J%d" % r].value, 1.5)
+                self.assertEqual(written[r], {"K": 1.5, "L": 1.5, "M": 1.5})
+            self.assertEqual(st["partial_channels"], 1)
+
+    def test_partial_empty_point_gets_exact_value(self):
+        import openpyxl
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src.xlsx")
+            make_sheet(src, [(0, 100, 0.2, 0.321)])
+            wb = openpyxl.load_workbook(src)
+            for r in range(4, 9):
+                for c in "JKLM":
+                    wb.active["%s%d" % (c, r)] = 7.0 if r != 6 else None
+            wb.save(src)
+            out, written, st = magic.run(src, 60)
+            ws = openpyxl.load_workbook(out).active
+            self.assertEqual(list(written), [6])
+            self.assertEqual(ws["J4"].value, 7.0)  # введённое не тронуто
+            self.assertEqual(written[6], {c: 50.0 for c in "JKLM"})  # точка 50 % - точное значение
+            self.assertEqual(ws["M6"].value, 50.0)
 
 
 if __name__ == "__main__":

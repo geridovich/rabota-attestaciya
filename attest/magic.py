@@ -59,9 +59,11 @@ def read_channels(ws_vals, lay):
             xd = (cur["high"] - cur["low"]) * pct / 100.0 + cur["low"]
         if pct is None and xd is None:
             continue
-        filled = [ws_vals["%s%d" % (c, r)].value for c in lay["m"]]
-        cur["points"].append({"row": r, "xd": xd,
-                              "empty": all(v is None or str(v).strip() == "" for v in filled)})
+        cells = {c: ws_vals["%s%d" % (c, r)].value for c in lay["m"]}
+        blank = [c for c, v in cells.items() if v is None or str(v).strip() == ""]
+        nums = [to_float(v) for c, v in cells.items() if c not in blank]
+        cur["points"].append({"row": r, "xd": xd, "empty": len(blank) == len(cells),
+                              "blank": blank, "nums": [v for v in nums if v is not None]})
     return channels
 
 
@@ -149,16 +151,47 @@ def point_error(ch, values):
     return max(abs(values[p["row"]] - p["xd"]) / span * 100.0 for p in ch["points"])
 
 
+def fill_partial(ch):
+    """Канал, где часть измерений уже есть: дописать только пустые ячейки.
+
+    Введённые значения не меняются. Пустая точка целиком получает точное
+    действительное значение, недописанная строка (J есть, K..M пусто) -
+    среднее уже введённых, чтобы погрешность точки (N) не изменилась.
+    Возвращает {строка Excel: {столбец: значение}}.
+    """
+    out = {}
+    for p in ch["points"]:
+        if not p["blank"]:
+            continue
+        if p["empty"]:
+            if p["xd"] is None:
+                continue
+            v = p["xd"]
+        elif p["nums"]:
+            v = sum(p["nums"]) / len(p["nums"])
+        else:
+            continue  # в строке только текст/ошибки - это покажет окно «Ошибки»
+        out[p["row"]] = {c: round(v, 10) for c in p["blank"]}
+    return out
+
+
 def run(path, percent, out_path=None, rng=_rng, out_dir=None):
-    """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика)."""
+    """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика).
+
+    Каналы без единого измерения заполняются целиком (с долей погрешности),
+    в частично заполненных дописываются только пустые ячейки (fill_partial).
+    В {строка: значение} для таких строк - {столбец: значение}.
+    """
     import openpyxl
     wb = openpyxl.load_workbook(path)
     vals = openpyxl.load_workbook(path, data_only=True)
     ws_vals, lay = layout.pick_sheet(vals)
     ws = wb[ws_vals.title]
-    channels = [c for c in read_channels(ws_vals, lay)
+    all_channels = read_channels(ws_vals, lay)
+    channels = [c for c in all_channels
                 if c["points"] and all(p["empty"] for p in c["points"])
                 and all(p["xd"] is not None for p in c["points"])]
+    partial = [c for c in all_channels if c["points"] and not all(p["empty"] for p in c["points"])]
     # погрешность можно дать только каналам с диапазоном и запасом до допуска
     eligible = [c for c in channels if c["high"] != c["low"] and max_error(c) > 0]
     k = min(len(eligible), int(round(len(channels) * percent / 100.0)))
@@ -173,6 +206,16 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None):
             for col in lay["m"]:
                 ws["%s%d" % (col, row)] = v
             written[row] = v
+    partial_channels = partial_cells = 0
+    for c in partial:
+        cells = fill_partial(c)
+        if cells:
+            partial_channels += 1
+        for row, cols in cells.items():
+            for col, v in cols.items():
+                ws["%s%d" % (col, row)] = v
+                partial_cells += 1
+            written[row] = cols
     wb.calculation.fullCalcOnLoad = True  # Excel пересчитает формулы N, O, Q, S при открытии
     if out_path is None:
         src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
@@ -183,4 +226,5 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None):
         while os.path.exists(out_path):
             out_path, n = "%s (magic %d).xlsx" % (base, n), n + 1
     wb.save(out_path)
-    return out_path, written, {"sheet": ws.title, "channels": len(channels), "nonzero": nonzero}
+    return out_path, written, {"sheet": ws.title, "channels": len(channels), "nonzero": nonzero,
+                               "partial_channels": partial_channels, "partial_cells": partial_cells}
