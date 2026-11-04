@@ -39,10 +39,20 @@ def load_settings():
     s = dict(DEFAULTS)
     try:
         with open(SETTINGS, encoding="utf-8") as f:
-            s.update(json.load(f))
+            saved = json.load(f)
+        if isinstance(saved, dict):  # null, список и т.п. - испорченный файл, берём умолчания
+            for k, v in saved.items():
+                if k not in DEFAULTS or isinstance(v, type(DEFAULTS[k])) or \
+                        (isinstance(DEFAULTS[k], (int, float)) and isinstance(v, (int, float))):
+                    s[k] = v
     except (OSError, ValueError):
         pass
-    dates = list(s.get("dates") or [])[:DATE_RANGES]
+    try:
+        s["magic_pct"] = int(s.get("magic_pct", 20))
+    except (TypeError, ValueError):
+        s["magic_pct"] = 20
+    dates = [[str(v) for v in d] for d in (s.get("dates") or [])
+             if isinstance(d, list) and len(d) == 3][:DATE_RANGES]
     s["dates"] = dates + [["", "", ""]] * (DATE_RANGES - len(dates))
     return s
 

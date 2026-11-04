@@ -132,6 +132,9 @@ def heal(path, out_path=None, out_dir=None):
             ws[col + str(r)].font = Font(bold=r < 3)
 
     r = 4
+    # номер протокола = № канала, поэтому номера должны быть разными;
+    # новый номер не должен совпасть ни с уже выданным, ни с чьим-то ещё в файле
+    taken = {to_text(ch["head"].get(c["num"])) for ch in channels}
     used_nums = set()
     seq = 0
     for ch in channels:
@@ -142,7 +145,12 @@ def heal(path, out_path=None, out_dir=None):
         num = to_text(h.get(c["num"]))
         seq += 1
         if not num or num in used_nums:
-            num = str(seq)
+            if num:
+                fixes["Повторяющиеся № заменены свободными"] = fixes.get("Повторяющиеся № заменены свободными", 0) + 1
+            n = seq
+            while str(n) in used_nums or (str(n) in taken and str(n) != num):
+                n += 1
+            num = str(n)
         used_nums.add(num)
         ws["A%d" % first] = int(num) if num.isdigit() else num
         ws["B%d" % first] = to_text(h.get(c["kks"]))

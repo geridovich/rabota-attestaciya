@@ -165,6 +165,39 @@ class BadValues(unittest.TestCase):
         self.assertIn("нулевой диапазон", ch.error)
         self.assertIn("на 0", ch.problems()[0].why)
 
+    def test_blank_lower_bound(self):
+        ch = sheet_channel(low=None)
+        self.assertIn("нижняя граница", ch.problems()[0].why)
+        self.assertIsNone(ch.result)
+
+    def test_bad_allowed_fallback_x(self):
+        rows = [{"A": 1, "B": "10HBK50CQ004", "C": "Давление", "D": 0, "E": 100, "I": 0, "J": 0, "X": "#VALUE!"},
+                {"I": 50, "J": 50}, {"I": 100, "J": 100}]
+        ch = data.calc_channel(data.channels_from_rows(rows)[0], 20)
+        self.assertIn("не число", ch.error)
+
+    def test_same_xd_everywhere(self):
+        rows = [{"A": 1, "B": "10HBK50CQ004", "C": "Давление", "D": 0, "E": 100, "I": 50, "J": 50, "R": 1},
+                {"I": 50, "J": 50}, {"I": 50, "J": 50}]
+        ch = data.calc_channel(data.channels_from_rows(rows)[0], 20)
+        self.assertIn("одно действительное", ch.error)
+        self.assertEqual(ch.verdict, "")
+
+    def test_paste_0_100_keeps_first_measurement(self):
+        """Диапазон 0..100 без столбца «%»: первое измерение не должно уйти во «вход»."""
+        text = ("1\t10HBK50CQ004\tУровень\t0\t100\t%\t0\t4\t0\t0\t0\n"
+                "\t\t\t\t\t\t50\t54\t50\t50\t50\n"
+                "\t\t\t\t\t\t100\t104\t100\t100\t100\n")
+        ch = data.channels_from_rows(data.rows_from_text(text))[0]
+        self.assertEqual(ch.points[0].measured, [4, 0, 0, 0])
+        self.assertAlmostEqual(data.calc_channel(ch, 20).et_ik, 1.0)
+
+    def test_paste_error_cell_is_reported(self):
+        text = ("1\t10HBK50CQ004\tУровень\t0\t10\tм\t0\t#DIV/0!\t0\t0\t0\n"
+                "\t\t\t\t\t\t5\t#DIV/0!\t5\t5\t5\n")
+        ch = data.calc_channel(data.channels_from_rows(data.rows_from_text(text))[0], 20)
+        self.assertIn("не число", ch.error)
+
     def test_problem_points_to_cell(self):
         ch = sheet_channel(allowed="#VALUE!")
         p = ch.problems()[0]

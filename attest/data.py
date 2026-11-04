@@ -255,13 +255,15 @@ COL_TITLES = {
     "D": "нижняя граница", "E": "верхняя граница", "I": "действительное значение",
     "J": "измеренное значение 1", "K": "измеренное значение 2", "L": "измеренное значение 3",
     "M": "измеренное значение 4", "P": "погрешность ПИП в ИК", "U": "погрешность ПИП",
-    "R": "допустимая погрешность",
+    "R": "допустимая погрешность", "X": "допустимая погрешность ИК",
 }
 
 ERROR_FIXES = {
     "нет измеренных значений": "Заполните измеренные значения (J..M) или нажмите magic.",
     "меньше двух точек": "У канала должно быть не меньше двух точек с измерениями.",
     "нет действительного значения (столбец I)": "Заполните действительное значение или «%» точки.",
+    "у всех точек одно действительное значение - прямую через них не провести":
+        "Проверьте столбец действительных значений (I) и «%»: точки должны быть разными (0, 25, 50…).",
 }
 
 
@@ -308,6 +310,10 @@ def _has_pct_column(lines):
         if pct is None or rest[0] is None:
             continue
         expected = (high - low) * pct / 100.0 + low
+        if _close(expected, pct):
+            # диапазон 0..100: % и действительное значение совпадают, по такой
+            # строке не понять, есть ли столбец «%» (иначе измерение уходит во «вход»)
+            continue
         total += 1
         if any(_close(v, expected) for v in rest):
             votes += 1
@@ -357,13 +363,14 @@ def rows_from_text(text):
         if row.get(COLUMNS["kks"]) or row.get(COLUMNS["num"]):
             low = to_float(row.get(COLUMNS["low"])) or 0.0
             high = to_float(row.get(COLUMNS["high"])) or 0.0
-        rest = [to_float(c) for c in cells[len(keys):]]
-        while rest and rest[-1] is None:
+        # значения как есть (текст), чтобы «#ДЕЛ/0!» не превратился в пустую ячейку
+        rest = list(cells[len(keys):])
+        while rest and is_blank(rest[-1]):
             rest.pop()
         pct = to_float(row.get(COLUMNS["pct"]))
         if rest:
             expected = None if pct is None or low is None else (high - low) * pct / 100.0 + low
-            if len(rest) >= 2 and not _close(rest[0], expected) and _close(rest[1], expected):
+            if len(rest) >= 2 and not _close(to_float(rest[0]), expected) and _close(to_float(rest[1]), expected):
                 row[COLUMNS["input"]] = rest.pop(0)
             row[COLUMNS["output"]] = rest.pop(0)
             for i, v in enumerate(rest):
@@ -437,7 +444,8 @@ def channels_from_rows(rows):
         if not is_kks(kks, g(row, "num"), g(row, "name")):  # заметки «НЕТ НА МНЕМОСХЕМЕ»
             kks = ""
         num = to_text(g(row, "num"))
-        if kks or num:
+        head = bool(kks or num)
+        if head:
             allowed = to_float(g(row, "allowed"))
             cur = Channel(
                 num=num, kks=kks, name=to_text(g(row, "name")),
@@ -457,8 +465,19 @@ def channels_from_rows(rows):
             cur.unit = to_text(g(row, "unit"))
         bad = []
         measured = measured_values(row, bad)
-        keys = ["output"] + (["low", "high", "pip_ik", "pip_err", "allowed"] if cur.row == row.get("_row") else [])
+        keys = ["output"]
+        if head:
+            keys += ["low", "high", "pip_ik", "pip_err", "allowed"]
+            if is_blank(g(row, "allowed")):  # допуск тогда берётся из X
+                keys.append("allowed_ik")
         bad += [COLUMNS[k] for k in keys if bad_number(g(row, k))]
+        if head:
+            for k in ("low", "high"):  # пустая граница - не 0, а незаданный диапазон
+                if is_blank(g(row, k)) and (cur.name or not is_blank(g(row, "high" if k == "low" else "low"))):
+                    cur.bad_cells.append(Problem(
+                        cur.cell(COLUMNS[k], row.get("_row")), "",
+                        "Пустая ячейка: %s диапазона не задана." % ("нижняя граница" if k == "low" else "верхняя граница"),
+                        "Впишите границу (если она 0 - впишите 0)."))
         for letter in sorted(bad):
             what = COL_TITLES.get(letter, "")
             cur.bad_cells.append(Problem(
@@ -501,10 +520,15 @@ def calc_channel(ch, qm=20):
             raise calcd.CalcError("нет измеренных значений" if not ch.points else "меньше двух точек")
         if any(p.xd is None for p in ch.points):
             raise calcd.CalcError("нет действительного значения (столбец I)")
+        if len({p.xd for p in ch.points}) < 2:
+            raise calcd.CalcError("у всех точек одно действительное значение - прямую через них не провести")
         values = []
         for p in ch.points:
             values += expand(p.measured, qm)
-        ch.result = calcd.calc(values, [p.xd for p in ch.points], qm, 0)
+        res = calcd.calc(values, [p.xd for p in ch.points], qm, 0)
+        if not all(math.isfinite(v) for v in (res.a1, res.a2, res.b1, res.b2, res.gh, res.gl)):
+            raise calcd.CalcError("коэффициенты a1..gl не посчитались (деление на 0)")
+        ch.result = res
     except (calcd.CalcError, ValueError, ZeroDivisionError) as e:
         ch.error = str(e)
     return ch
