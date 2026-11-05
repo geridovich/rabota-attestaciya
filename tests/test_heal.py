@@ -51,7 +51,7 @@ class HealTest(unittest.TestCase):
             self.assertEqual(c.points[2].measured, [0.5, 0.5, 0.5, 0.5])
             import openpyxl
             ws = openpyxl.load_workbook(out).active
-            self.assertEqual(ws["I5"].value, "=(E4-D4)*25%+D4")
+            self.assertEqual(ws["I5"].value, "=ROUND((E4-D4)*25%+D4,10)")
             self.assertTrue(str(ws["S4"].value).startswith("=IF(Q4>R4"))
 
 

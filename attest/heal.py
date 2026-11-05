@@ -189,7 +189,7 @@ def heal(path, out_path=None, out_dir=None):
             ws["G%d" % rr] = pct
             ws["H%d" % rr] = _num(p.get(c["input"]), fixes, "Числа, записанные текстом, исправлены")
             if pct is not None:
-                ws["I%d" % rr] = "=(E{0}-D{0})*{1}%+D{0}".format(first, _fmt(pct))
+                ws["I%d" % rr] = "=ROUND((E{0}-D{0})*{1}%+D{0},10)".format(first, _fmt(pct))
             else:
                 ws["I%d" % rr] = _num(p.get(c["output"]), fixes, "Числа, записанные текстом, исправлены")
             vals = [_num(p.get(c[m]), fixes, "Числа, записанные текстом, исправлены")
@@ -201,7 +201,8 @@ def heal(path, out_path=None, out_dir=None):
                     fixes.get("Измерения дописаны в пустые столбцы J..M", 0) + 1
             for col, v in zip(MEAS, vals):
                 ws["%s%d" % (col, rr)] = v
-            ws["N%d" % rr] = "=ABS(((AVERAGE(J{0}:M{0})-I{0})/(E{1}-D{1}))*100)".format(rr, first)
+            # ROUND: иначе Excel показывает шум двоичных дробей (0,6*75% = 0,44999…) как 9,25E-15
+            ws["N%d" % rr] = "=ROUND(ABS(((AVERAGE(J{0}:M{0})-I{0})/(E{1}-D{1}))*100),9)".format(rr, first)
         ws["O%d" % first] = "=MAXA(N%d:N%d)" % (first, last)
         ws["Q%d" % first] = "=SQRT(O{0}*O{0}+P{0}*P{0})".format(first)
         ws["S%d" % first] = '=IF(Q{0}>R{0},"Не годен","Годен")'.format(first)
