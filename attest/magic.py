@@ -58,7 +58,7 @@ def read_channels(ws_vals, lay):
             channels.append(cur)
         elif has_num and cur is not None and cur["row"] != r:
             cur = None  # № без KKS - заготовка; её строки не относятся к предыдущему каналу (как в data)
-        if cur is None or cur["high"] is None:
+        if cur is None or cur["high"] is None or hidden(r):  # скрытая строка - не точка
             continue
         pct = g("pct", r)
         xd = g("output", r)

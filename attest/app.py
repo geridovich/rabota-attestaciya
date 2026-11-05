@@ -37,6 +37,35 @@ COLS = (("num", "№", 35), ("kks", "KKS", 100), ("name", "Наименован�
         ("allowed", "Допуст., %", 60), ("verdict", "Результат", 65))
 
 
+NAV_KEYS = {"Left", "Right", "Up", "Down", "Home", "End", "Prior", "Next"}
+
+
+def readonly_key(text, e):
+    """Клавиша в тексте только для чтения: Ctrl+C, Ctrl+A и стрелки можно, остальное нет.
+    keycode на Windows - код клавиши, поэтому Ctrl+C работает и в русской раскладке."""
+    if e.state & 0x4 and e.keycode in (67, 65):
+        if e.keycode == 65:
+            text.tag_add("sel", "1.0", "end-1c")
+        else:
+            text.event_generate("<<Copy>>")
+        return "break"
+    if e.keysym in NAV_KEYS or e.keysym.startswith(("Shift", "Control")):
+        return None
+    return "break"
+
+
+def readonly_text(root, text):
+    """tk.Text, из которого можно выделять и копировать, но не менять."""
+    text.bind("<Key>", lambda e: readonly_key(text, e))
+    for ev in ("<<Paste>>", "<<Cut>>", "<<Clear>>", "<Button-2>"):
+        text.bind(ev, lambda _e: "break")
+    menu = tk.Menu(text, tearoff=0)
+    menu.add_command(label="Копировать", command=lambda: text.event_generate("<<Copy>>"))
+    menu.add_command(label="Выделить всё", command=lambda: text.tag_add("sel", "1.0", "end-1c"))
+    text.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+    text.configure(cursor="xterm")
+
+
 def load_settings():
     s = dict(DEFAULTS)
     try:
@@ -700,7 +729,8 @@ class App(tk.Tk):
         win.transient(self)
         sheet = next((ch.sheet for _i, ch, _p in items if ch.sheet), "")
         ttk.Label(win, text=("Лист «%s». " % sheet if sheet else "") +
-                  "Щелчок по строке - подробности ниже, двойной щелчок - показать канал в таблице.",
+                  "Щелчок по строке - подробности ниже, двойной щелчок - показать канал в таблице. "
+                  "Ctrl+C или правая кнопка - скопировать.",
                   style="Hint.TLabel").pack(anchor="w", padx=8, pady=(8, 4))
         info = tk.Text(win, height=6, wrap="word", font=("Segoe UI", 10))
         info.pack(side="bottom", fill="x", padx=8, pady=8)  # до таблицы, чтобы не вытеснялось
@@ -741,8 +771,23 @@ class App(tk.Tk):
                 self.tree.selection_set(iid)
                 self.tree.see(iid)
 
+        def copy_rows(_e=None):
+            """Выделенные строки списка - в буфер (табуляцией, вставляется в Excel)."""
+            sel = tree.selection() or tree.get_children()
+            lines = ["\t".join(str(v) for v in tree.item(iid, "values")) for iid in sel]
+            self.clipboard_clear()
+            self.clipboard_append("\n".join(lines))
+            return "break"
+
+        tree.configure(selectmode="extended")
         tree.bind("<<TreeviewSelect>>", select)
         tree.bind("<Double-1>", goto)
+        tree.bind("<Control-KeyPress>", lambda e: copy_rows() if e.keycode == 67 else None)  # Ctrl+C и в рус. раскладке
+        menu = tk.Menu(win, tearoff=0)
+        menu.add_command(label="Копировать выделенные строки", command=copy_rows)
+        tree.bind("<Button-3>", lambda e: (tree.selection() or tree.selection_set(tree.identify_row(e.y)),
+                                           menu.tk_popup(e.x_root, e.y_root)))
+        readonly_text(self, info)
         tree.selection_set("0")
 
     # ---------- документы ----------

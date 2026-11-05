@@ -501,9 +501,12 @@ def channels_from_rows(rows):
             cur.hidden = cur.hidden and bool(row.get("_hidden"))
         if not cur.unit and to_text(g(row, "unit")):
             cur.unit = to_text(g(row, "unit"))
+        # скрытая строка - не точка: в Excel её не видно (у канала 34 в К-8 так спрятана
+        # лишняя пустая точка 0 %). Данные канала из неё (№, KKS, диапазон) берутся.
+        visible = not row.get("_hidden")
         bad = []
-        measured = measured_values(row, bad)
-        keys = ["output"]
+        measured = measured_values(row, bad) if visible else []
+        keys = ["output"] if visible else []
         if head:
             keys += ["low", "high", "pip_ik", "pip_err", "allowed"]
             if is_blank(g(row, "allowed")):  # допуск тогда берётся из X

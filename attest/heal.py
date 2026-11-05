@@ -77,8 +77,12 @@ def _group(rows, fixes):
             continue
         if row is not cur["head"]:  # канал скрыт, только если скрыты все его строки
             cur["hidden"] = cur["hidden"] and bool(row.get("_hidden"))
-        if any(row.get(c[k]) is not None and str(row.get(c[k])).strip() != ""
-               for k in ("pct", "output", "m1", "m2", "m3", "m4")):
+        if row.get("_hidden"):
+            if any(row.get(c[k]) is not None and str(row.get(c[k])).strip() != ""
+                   for k in ("pct", "output", "m1", "m2", "m3", "m4")):
+                fixes["Скрытые строки точек убраны"] = fixes.get("Скрытые строки точек убраны", 0) + 1
+        elif any(row.get(c[k]) is not None and str(row.get(c[k])).strip() != ""
+                 for k in ("pct", "output", "m1", "m2", "m3", "m4")):
             cur["points"].append(row)
         unit = to_text(row.get(c["unit"]))
         if row is not cur["head"] and unit and not to_text(cur["head"].get(c["unit"])):
