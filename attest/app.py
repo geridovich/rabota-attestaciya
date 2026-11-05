@@ -99,6 +99,7 @@ class App(tk.Tk):
         self.click_sound = Sound("click.mp3", "plusultra_click", bool(self.settings["click_sound"]))
         self.magic_sound = Sound("magic.mp3", "plusultra_magic", bool(self.settings["magic_sound"]))
         self.xlsx_path = None  # Excel, открытый кнопкой «Открыть Excel…» (нужен для magic)
+        self.source_name = ""  # имя исходного файла (до лечения)
         self._set_icon()
         self.texts = []  # tk.Text - их цвета задаются вручную
 
@@ -178,6 +179,8 @@ class App(tk.Tk):
         ttk.Button(bar, text="Очистить", command=self.clear).pack(side="left")
         ttk.Button(bar, text="Рассчитать", command=self.recalc).pack(side="left", padx=4)
         ttk.Button(bar, text="Ошибки…", command=self.show_errors).pack(side="left", padx=4)
+        self.file_label = ttk.Label(bar, text="", style="Bold.TLabel")  # с каким файлом работаем
+        self.file_label.pack(side="left", padx=(8, 0))
         self.click_btn = ttk.Button(bar, width=8, command=self.toggle_click_sound)
         self.click_btn.pack(side="right")
         self._click_btn_text()
@@ -333,7 +336,7 @@ class App(tk.Tk):
             messagebox.showerror("Полечить файл", "Не получилось: %s" % box["error"])
             return
         out, fixes, n = box["result"]
-        self.xlsx_path = out
+        self.xlsx_path = out; self._set_file("%s (вылеченная копия)" % self.source_name)
         self.channels = []
         self.add_channels(data.channels_from_rows(data.rows_from_xlsx(out)))
         lines = ["• %s: %d" % (k, v) for k, v in fixes.items()] or ["• косяков не нашлось, файл и так в порядке"]
@@ -587,7 +590,7 @@ class App(tk.Tk):
         except tk.TclError:
             messagebox.showwarning("Буфер пуст", "Скопируйте в Excel нужные строки (Ctrl+C).")
             return
-        self.xlsx_path = None
+        self.xlsx_path = None; self.source_name = ""; self._set_file("вставка из буфера")
         self.add_channels(data.channels_from_rows(data.rows_from_text(text)))
 
     def open_xlsx(self):
@@ -619,7 +622,7 @@ class App(tk.Tk):
         if not chs:  # прежний файл и таблица остаются как были
             self.add_channels(chs)
             return
-        self.xlsx_path = path
+        self.xlsx_path = path; self.source_name = os.path.basename(path); self._set_file(self.source_name)
         self.channels = []
         self.add_channels(chs)
         self.after(100, self._offer_make_good, path)
@@ -669,7 +672,7 @@ class App(tk.Tk):
 
     def clear(self):
         self.channels = []
-        self.xlsx_path = None
+        self.xlsx_path = None; self.source_name = ""; self._set_file("")
         self.start.set(1)
         self.recalc()
 
@@ -699,6 +702,11 @@ class App(tk.Tk):
             d = max(0, min(DIGITS_MAX, d))
             self.digits.set(d)
         return d
+
+    def _set_file(self, name):
+        """Название файла, с которым работает программа, - в верхней строке после «Ошибки…»."""
+        short = name if len(name) <= 60 else name[:57] + "…"
+        self.file_label.config(text=("Файл: " + short) if name else "")
 
     # ---------- галочки каналов ----------
     def _tree_click(self, e):
