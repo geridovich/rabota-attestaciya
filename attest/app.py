@@ -198,6 +198,7 @@ class App(tk.Tk):
         self.tree.configure(yscrollcommand=ys.set)
         self.tree.pack(side="left", fill="both", expand=True)
         ys.pack(side="right", fill="y")
+        self.tree.heading("check", command=self.toggle_all_checks)  # ✓ в заголовке - все / ни одного
         self.tree.bind("<<TreeviewSelect>>", self.show_detail)
         self.tree.bind("<Button-1>", self._tree_click, add="+")
         self.tree.bind("<space>", lambda _e: self._toggle_checks(self.tree.selection()) or "break")
@@ -267,8 +268,6 @@ class App(tk.Tk):
         ttk.Button(btns, text="Только выделенные", command=self.generate_selected).grid(row=0, column=1, sticky="we", padx=(4, 0))
         ttk.Button(btns, text="Перечень", command=self.generate_perechen).grid(row=1, column=0, sticky="we", pady=(4, 0))
         ttk.Button(btns, text="Открыть папку", command=self.open_out_dir).grid(row=1, column=1, sticky="we", padx=(4, 0), pady=(4, 0))
-        self.check_btn = ttk.Button(btns, text="Выделить всё", command=self.toggle_all_checks)
-        self.check_btn.grid(row=2, column=0, columnspan=2, sticky="we", pady=(4, 0))
         btns.columnconfigure(0, weight=1)
         btns.columnconfigure(1, weight=1)
         return side
@@ -482,7 +481,8 @@ class App(tk.Tk):
         ("10", "Создать", "«Протоколы» - один Word со всеми протоколами (число в документе ставится само), "
                           "«Только выделенные» - только по каналам с галочкой ☑ (щелчок по клетке ☐ в "
                           "первом столбце таблицы ставит или снимает галочку, пробел - у выделенных строк), "
-                          "«Выделить всё» - галочки всем каналам, повторное нажатие снимает все. "
+                          "щелчок по ✓ в заголовке этого столбца - галочки всем каналам, повторный "
+                          "щелчок снимает все. "
                           "«Перечень» - перечень и градуировочные таблицы по всем каналам (галочки на него "
                           "не влияют), «Открыть папку» - папка с документами и подпапками."),
         ("11", "Звук кнопок", "Кнопка ♪ в правом верхнем углу включает и выключает щелчок, который "
@@ -717,7 +717,7 @@ class App(tk.Tk):
         self._update_check_count()
 
     def toggle_all_checks(self):
-        """«Выделить всё»: ставит галочки всем; если уже все отмечены - снимает."""
+        """Щелчок по ✓ в заголовке: галочки всем; если уже все отмечены - снимает."""
         on = not (self.channels and all(getattr(c, "checked", False) for c in self.channels))
         for i, ch in enumerate(self.channels):
             ch.checked = on
@@ -726,9 +726,12 @@ class App(tk.Tk):
         self._update_check_count()
 
     def _update_check_count(self):
+        """Заголовок столбца галочек: ☑ - отмечены все, ✓ - нет; число отмеченных - в строке состояния."""
         n = sum(1 for c in self.channels if getattr(c, "checked", False))
-        self.check_btn.config(text="Снять выделение (%d)" % n if n and n == len(self.channels)
-                              else "Выделить всё" + (" (отмечено %d)" % n if n else ""))
+        self.tree.heading("check", text=CHECK_ON if n and n == len(self.channels) else "✓")
+        self._checked_note = ", отмечено: %d" % n if n else ""
+        if hasattr(self, "_status_base"):
+            self.status.config(text=self._status_base + self._checked_note)
 
     def refresh(self):
         d = self._digits()
@@ -741,9 +744,9 @@ class App(tk.Tk):
                     f(ch.total), f(ch.allowed_value), ch.verdict)
             tag = "err" if ch.error else ("bad" if ch.verdict == "Не годен" else "")
             self.tree.insert("", "end", iid=str(i), values=vals, tags=(tag,))
-        self._update_check_count()
         bad = sum(1 for c in self.channels if c.error)
-        self.status.config(text="Каналов: %d" % len(self.channels) + (", с ошибками: %d" % bad if bad else ""))
+        self._status_base = "Каналов: %d" % len(self.channels) + (", с ошибками: %d" % bad if bad else "")
+        self._update_check_count()
 
     def show_detail(self, _=None):
         sel = self.tree.selection()
@@ -878,7 +881,7 @@ class App(tk.Tk):
             [self.channels[int(i)] for i in self.tree.selection() if int(i) < len(self.channels)]
         if not sel:
             messagebox.showwarning("Только выделенные", "Поставьте галочки у нужных каналов "
-                                   "(щелчок по клетке ☐ в первом столбце) или нажмите «Выделить всё».")
+                                   "(щелчок по клетке ☐ в первом столбце) или щёлкните ✓ в заголовке, чтобы отметить все.")
             return
         if len(sel) > MAX_BATCH:
             messagebox.showwarning("Слишком много", "Выделите не больше %d каналов." % MAX_BATCH)
