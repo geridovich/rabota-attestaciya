@@ -639,7 +639,6 @@ class App(tk.Tk):
             return
         finally:
             self.config(cursor="")
-        self.magic_sound.play()
         self.channels = data.channels_from_rows(data.rows_from_xlsx(path, overrides=written))
         self.recalc()
         still = [c.num for c in self.channels if c.verdict == "Не годен"]
