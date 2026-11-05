@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import threading
+import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -13,6 +14,7 @@ from .music import Sound, asset_path
 
 APP_NAME = "Plus Ultra"
 TITLE = "GERA | ATTESTATION SYSTEM"  # по центру заголовка окна
+SUPPORT_TG = "https://t.me/GeriKing"  # куда писать об ошибках (бета-версия)
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]))
 SETTINGS = os.path.join(APP_DIR, "settings.json")
 MAX_BATCH = 3000  # протоколов в одном документе
@@ -471,6 +473,20 @@ class App(tk.Tk):
         self._help_imgs = []
 
         ttk.Label(page, text="Как пользоваться Plus Ultra", style="Title.TLabel").pack(anchor="w")
+        beta = ttk.LabelFrame(page, text="Бета-версия", padding=8)
+        beta.pack(fill="x", pady=(4, 10))
+        lbl = ttk.Label(beta, wraplength=self.px(820), justify="left", text=(
+            "Сейчас это бета-версия Plus Ultra: программа ещё дорабатывается, и где-то могут "
+            "встретиться ошибки. Если программа не открывается на вашем компьютере или ноутбуке "
+            "либо выдаёт ошибку при работе, напишите мне в Telegram и пришлите:\n"
+            "  • какая у вас Windows (например, Windows 10 или Windows 11);\n"
+            "  • скриншот или фото ошибки;\n"
+            "  • файл Excel, на котором она появилась."))
+        lbl.pack(anchor="w")
+        self._help_texts.append(lbl)
+        link = ttk.Label(beta, text="Написать в Telegram: " + SUPPORT_TG, style="Link.TLabel", cursor="hand2")
+        link.pack(anchor="w", pady=(6, 0))
+        link.bind("<Button-1>", lambda _e: webbrowser.open(SUPPORT_TG))
         ttk.Label(page, text="Номера на картинке совпадают с шагами ниже.", style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
         self._help_image(page, "help_main.png")
         for num, title, text in self.HELP_STEPS:

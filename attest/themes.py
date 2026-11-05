@@ -42,6 +42,8 @@ def apply(style, name, root):
     style.configure("Hint.TLabel", background=p["bg"], foreground=p["muted"])
     style.configure("Bold.TLabel", background=p["bg"], foreground=p["fg"], font=("Segoe UI", 10, "bold"))
     style.configure("Title.TLabel", background=p["bg"], foreground=p["accent"], font=("Segoe UI", 16, "bold"))
+    style.configure("Link.TLabel", background=p["bg"], foreground=p["accent"],
+                    font=("Segoe UI", 10, "bold underline"))
     style.configure("Step.TLabel", background=p["accent"], foreground=p["accent_fg"], font=("Segoe UI", 12, "bold"))
     style.configure("TLabelframe", background=p["bg"], bordercolor=p["border"])
     style.configure("TLabelframe.Label", background=p["bg"], foreground=p["accent"])
