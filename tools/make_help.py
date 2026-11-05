@@ -88,6 +88,7 @@ def shot(root):
 
 def main(xlsx):
     appmod.enable_dpi_awareness()
+    appmod.messagebox.askyesno = lambda *_a, **_k: False  # без окна «сделать годными» на скриншоте
     a = appmod.App()
     a.state("normal")
     a.geometry("1366x700+0+0")
