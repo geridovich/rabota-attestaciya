@@ -71,10 +71,12 @@ def _group(rows, fixes):
                 isinstance(row.get(c["name"]), str) and "\n" in row.get(c["name"]):
             fixes["Переносы строк в названиях убраны"] = fixes.get("Переносы строк в названиях убраны", 0) + 1
         if kks or num:
-            cur = {"head": row, "points": [], "notes": []}
+            cur = {"head": row, "points": [], "notes": [], "hidden": bool(row.get("_hidden"))}
             channels.append(cur)
         if cur is None:
             continue
+        if row is not cur["head"]:  # канал скрыт, только если скрыты все его строки
+            cur["hidden"] = cur["hidden"] and bool(row.get("_hidden"))
         if any(row.get(c[k]) is not None and str(row.get(c[k])).strip() != ""
                for k in ("pct", "output", "m1", "m2", "m3", "m4")):
             cur["points"].append(row)
@@ -88,6 +90,9 @@ def _group(rows, fixes):
     kept = []
     for ch in channels:
         h = ch["head"]
+        if ch["hidden"]:  # скрытые в Excel каналы не учитываются и в копию не идут
+            fixes["Скрытые каналы пропущены"] = fixes.get("Скрытые каналы пропущены", 0) + 1
+            continue
         name = to_text(h.get(c["name"]))
         low, high = to_float(h.get(c["low"])), to_float(h.get(c["high"]))
         if not to_text(h.get(c["kks"])) or (not name and (low is None or low == high)):

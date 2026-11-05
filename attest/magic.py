@@ -31,9 +31,14 @@ def _cached(ws_vals, col, r):
 def read_channels(ws_vals, lay):
     """Каналы листа с номерами строк Excel: [{'row', 'kks', 'low', 'high', 'P', 'R', 'points': [...]}]."""
     g = lambda key, r: _cached(ws_vals, lay.get(key), r)
+    hidden = lambda r: bool(ws_vals.row_dimensions[r].hidden) if r in ws_vals.row_dimensions else False
     channels, cur = [], None
     for r in range(4, ws_vals.max_row + 1):
         kks = ws_vals["%s%d" % (lay["kks"], r)].value
+        num = ws_vals["%s%d" % (lay["num"], r)].value if lay.get("num") else None
+        has_num = num is not None and str(num).strip() != ""
+        if cur is not None and not has_num and (kks is None or not str(kks).strip()):
+            cur["hidden"] = cur["hidden"] and hidden(r)  # скрыт, только если скрыты все строки
         if is_kks(kks, ws_vals["%s%d" % (lay["num"], r)].value if lay.get("num") else None,
                   ws_vals["%s%d" % (lay["name"], r)].value if lay.get("name") else None):
             low, high = g("low", r), g("high", r)
@@ -49,8 +54,10 @@ def read_channels(ws_vals, lay):
             if allowed is None and p is not None:
                 allowed = 1.1 * math.sqrt(p * p + (w if w is not None else 0.15) ** 2)
             cur = {"row": r, "kks": str(kks).strip(), "low": low or 0.0, "high": high,
-                   "P": p, "R": allowed, "points": []}
+                   "P": p, "R": allowed, "points": [], "hidden": hidden(r)}
             channels.append(cur)
+        elif has_num and cur is not None and cur["row"] != r:
+            cur = None  # № без KKS - заготовка; её строки не относятся к предыдущему каналу (как в data)
         if cur is None or cur["high"] is None:
             continue
         pct = g("pct", r)
@@ -64,7 +71,8 @@ def read_channels(ws_vals, lay):
         nums = [to_float(v) for c, v in cells.items() if c not in blank]
         cur["points"].append({"row": r, "xd": xd, "empty": len(blank) == len(cells),
                               "blank": blank, "nums": [v for v in nums if v is not None]})
-    return channels
+    # скрытые в Excel каналы не трогаем
+    return [c for c in channels if not c["hidden"]]
 
 
 def step_for(span):

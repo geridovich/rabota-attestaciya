@@ -170,6 +170,7 @@ class Channel:
     row: int = None      # строка Excel (или строка вставки), с которой начинается канал
     sheet: str = ""      # лист Excel; пусто - вставка из буфера
     src: dict = field(default_factory=dict)  # стандартный столбец -> столбец в листе
+    hidden: bool = False  # все строки канала скрыты в Excel - канал не учитывается
 
     def cell(self, letter, row=None):
         """Адрес ячейки в исходном листе: «P5104»."""
@@ -496,6 +497,8 @@ def channels_from_rows(rows):
             channels.append(cur)
         if cur is None:
             continue
+        if not head:  # канал скрыт, только если скрыты все его строки
+            cur.hidden = cur.hidden and bool(row.get("_hidden"))
         if not cur.unit and to_text(g(row, "unit")):
             cur.unit = to_text(g(row, "unit"))
         bad = []
@@ -530,9 +533,8 @@ def channels_from_rows(rows):
             xd = round(xd, 10)
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
     # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны;
-    # скрытая в Excel строка канала без единой точки - тоже (в К-8 так убраны № 37, 39)
-    return [c for c in channels if c.kks and (c.name or c.high != c.low)
-            and not (getattr(c, "hidden", False) and not c.points)]
+    # скрытые в Excel каналы (все строки канала скрыты, как № 37, 39 в К-8) не учитываются
+    return [c for c in channels if c.kks and (c.name or c.high != c.low) and not c.hidden]
 
 
 def expand(measured, qm):
