@@ -402,7 +402,14 @@ class App(tk.Tk):
     # ---------- помощь ----------
     HELP_STEPS = (
         ("1", "Открыть Excel", "Нажмите «Открыть Excel…» или просто перетащите файл Excel мышью в окно. "
-                               "Можно и скопировать строки каналов в Excel (Ctrl+C) и нажать «Вставить из буфера»."),
+                               "Можно и скопировать строки каналов в Excel (Ctrl+C) и нажать «Вставить из буфера».\n"
+                               "Если в открытом файле есть негодные каналы, программа спросит, сделать ли их "
+                               "годными. «Да» - измеренные значения только этих каналов заполняются заново "
+                               "по правилам magic (в пределах допуска, доля с погрешностью - по ползунку), "
+                               "копия сохраняется в папку «Заполненные измерения (magic)». Каналы, у которых "
+                               "допуск R не больше погрешности ПИП P, годными сделать нельзя - о них будет "
+                               "сказано отдельно. Скрытые в Excel строки каналов без измерений программа "
+                               "не показывает."),
         ("2", "Полечить файл", "Если файл «кривой» (сдвинутые столбцы, заметки в KKS, пустые заготовки, "
                                "числа текстом), нажмите «Полечить файл». Программа сделает исправленную копию "
                                "в папке «Вылеченные файлы Excel» и дальше будет работать с ней."),
@@ -578,6 +585,41 @@ class App(tk.Tk):
         self.xlsx_path = path
         self.channels = []
         self.add_channels(chs)
+        self.after(100, self._offer_make_good, path)
+
+    def _offer_make_good(self, path):
+        """После открытия Excel: есть «Не годен» - предложить исправить измерения как magic."""
+        bad = [c for c in self.channels if c.verdict == "Не годен" and c.row is not None]
+        if not bad or self.xlsx_path != path:
+            return
+        nums = ", ".join(c.num for c in bad[:10]) + (" …" if len(bad) > 10 else "")
+        if not messagebox.askyesno(
+                "Негодные каналы",
+                "В файле негодных каналов: %d (№ %s).\n\nСделать их годными? Измеренные значения этих "
+                "каналов будут заполнены заново по правилам magic (погрешность в пределах допуска, "
+                "доля каналов с погрешностью - как на ползунке). Остальные каналы не меняются, "
+                "исходный Excel тоже: результат сохранится копией." % (len(bad), nums)):
+            return
+        self.config(cursor="watch")
+        self.update()
+        try:
+            out, written, impossible = magic.make_good(
+                path, [c.row for c in bad], self.magic_pct.get(), out_dir=self.sub_dir(MAGIC_DIR))
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror("Негодные каналы", "Не получилось: %s" % e)
+            return
+        finally:
+            self.config(cursor="")
+        self.magic_sound.play()
+        self.channels = data.channels_from_rows(data.rows_from_xlsx(path, overrides=written))
+        self.recalc()
+        still = [c.num for c in self.channels if c.verdict == "Не годен"]
+        text = "Исправлено каналов: %d.\n%s" % (len(bad) - len(impossible), out)
+        if impossible:
+            text += ("\n\nНельзя сделать годными (допустимая погрешность R не больше погрешности ПИП P, "
+                     "так что даже точные измерения не проходят): № %s." % ", ".join(still or ["?"]))
+        if messagebox.askyesno("Негодные каналы", text + "\n\nОткрыть файл?"):
+            os.startfile(out)
 
     def add_channels(self, chs):
         if not chs:

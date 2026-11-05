@@ -175,6 +175,47 @@ def fill_partial(ch):
     return out
 
 
+def _out_path(path, out_dir, suffix):
+    src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(src)[0]
+    out, n = "%s (%s).xlsx" % (base, suffix), 2
+    while os.path.exists(out):
+        out, n = "%s (%s %d).xlsx" % (base, suffix, n), n + 1
+    return out
+
+
+def make_good(path, head_rows, percent, rng=_rng, out_dir=None):
+    """Негодные каналы (строки Excel с KKS) - заново заполнить J..M по правилам magic.
+
+    Измерения этих каналов заменяются целиком, остальные каналы не трогаются.
+    Возвращает (путь копии, {строка: значение}, [строки каналов, которые годными
+    сделать нельзя: допуск R не больше погрешности ПИП P]).
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(path)
+    vals = openpyxl.load_workbook(path, data_only=True)
+    ws_vals, lay = layout.pick_sheet(vals)
+    ws = wb[ws_vals.title]
+    heads = set(head_rows)
+    channels = [c for c in read_channels(ws_vals, lay) if c["row"] in heads]
+    impossible = [c["row"] for c in channels if max_error(c) <= 0]
+    channels = [c for c in channels if max_error(c) > 0 and all(p["xd"] is not None for p in c["points"])]
+    k = int(round(len(channels) * percent / 100.0))
+    chosen = set(id(c) for c in rng.sample(channels, min(k, len(channels))))
+    written = {}
+    for c in channels:
+        for row, v in generate_channel(c, id(c) in chosen, rng).items():
+            for col in lay["m"]:
+                ws["%s%d" % (col, row)] = v
+            written[row] = v
+    wb.calculation.fullCalcOnLoad = True
+    out = _out_path(path, out_dir, "годные")
+    wb.save(out)
+    return out, written, impossible
+
+
 def run(path, percent, out_path=None, rng=_rng, out_dir=None):
     """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика).
 

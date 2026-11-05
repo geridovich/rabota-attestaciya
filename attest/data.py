@@ -381,12 +381,42 @@ def rows_from_text(text):
     return rows
 
 
+def hidden_rows(path, sheet_title):
+    """Номера скрытых строк листа. В режиме read_only openpyxl их не отдаёт,
+    поэтому читаем атрибут hidden прямо из xml листа."""
+    import zipfile
+    from xml.etree import ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    try:
+        with zipfile.ZipFile(path) as z:
+            wbx = ET.fromstring(z.read("xl/workbook.xml"))
+            rid = next((s.get("{%s}id" % ns["r"]) for s in wbx.iter("{%s}sheet" % ns["m"])
+                        if s.get("name") == sheet_title), None)
+            rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+            target = next((r.get("Target") for r in rels if r.get("Id") == rid), None)
+            if not target:
+                return set()
+            name = target.lstrip("/") if target.startswith("/") else "xl/" + target
+            out = set()
+            with z.open(name) as f:
+                for _ev, el in ET.iterparse(f):
+                    if el.tag == "{%s}row" % ns["m"]:
+                        if el.get("hidden") in ("1", "true"):
+                            out.add(int(el.get("r")))
+                        el.clear()
+            return out
+    except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile, ValueError):
+        return set()
+
+
 def rows_from_xlsx(path, first_row=4, overrides=None):
     """Строки листа с измерениями. overrides: {строка Excel: значение для J..M} (magic)."""
     import openpyxl
     from . import layout
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     ws, lay = layout.pick_sheet(wb)
+    hidden = hidden_rows(path, ws.title)
     keys = [k for k in COLUMNS if k not in ("m1", "m2", "m3", "m4")]
     m_std = [col_letter(col_index(COLUMNS["m1"]) + k) for k in range(len(lay["m"]))]
     rows = []
@@ -403,7 +433,7 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
             else:
                 row[std] = ov if ov is not None else raw.get(src)
         # где это в листе - для окна «Ошибки»
-        row["_row"], row["_sheet"] = n, ws.title
+        row["_row"], row["_sheet"], row["_hidden"] = n, ws.title, n in hidden
         row["_src"] = dict({COLUMNS[k]: lay[k] for k in keys if k in lay}, **dict(zip(m_std, lay["m"])))
         if "low" not in lay and lay.get("range") and raw.get(lay["range"]) is not None:
             low, high = layout.parse_range(raw[lay["range"]])
@@ -462,6 +492,7 @@ def channels_from_rows(rows):
                 notes=to_text(g(row, "notes")),
             )
             cur.row, cur.sheet, cur.src = row.get("_row"), row.get("_sheet", ""), row.get("_src", {})
+            cur.hidden = bool(row.get("_hidden"))
             channels.append(cur)
         if cur is None:
             continue
@@ -498,8 +529,10 @@ def channels_from_rows(rows):
         if xd is not None:  # формула Excel даёт 1,2000000000000002 вместо 1,2
             xd = round(xd, 10)
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
-    # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны
-    return [c for c in channels if c.kks and (c.name or c.high != c.low)]
+    # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны;
+    # скрытая в Excel строка канала без единой точки - тоже (в К-8 так убраны № 37, 39)
+    return [c for c in channels if c.kks and (c.name or c.high != c.low)
+            and not (getattr(c, "hidden", False) and not c.points)]
 
 
 def expand(measured, qm):
