@@ -142,6 +142,7 @@ def heal(path, out_path=None, out_dir=None):
             ws[col + str(r)].font = Font(bold=r < 3)
 
     r = 4
+    row_map = {1: 1, 2: 2, 3: 3}  # строка копии -> строка исходного листа (для оформления)
     # номер протокола = № канала, поэтому номера должны быть разными;
     # новый номер не должен совпасть ни с уже выданным, ни с чьим-то ещё в файле
     taken = {to_text(ch["head"].get(c["num"])) for ch in channels}
@@ -186,6 +187,7 @@ def heal(path, out_path=None, out_dir=None):
 
         for i, p in enumerate(pts):
             rr = first + i
+            row_map[rr] = p.get("_row") or h.get("_row")
             pct = _num(p.get(c["pct"]), fixes, "Числа, записанные текстом, исправлены")
             ws["G%d" % rr] = pct
             ws["H%d" % rr] = _num(p.get(c["input"]), fixes, "Числа, записанные текстом, исправлены")
@@ -215,11 +217,18 @@ def heal(path, out_path=None, out_dir=None):
                 cell.alignment = center
         if last > first:
             for col in CHANNEL_COLS:
-                ws.merge_cells("%s%d:%s%d" % (col, first, col, last))
+                _merge(ws, "%s%d:%s%d" % (col, first, col, last))
         r = last + 1
 
     ws.freeze_panes = "D4"
-    copied = _copy_other_sheets(path, wb)
+    try:
+        import openpyxl as _ox
+        src_wb = _ox.load_workbook(path)  # одна загрузка с оформлением на оба шага ниже
+    except Exception:  # noqa: BLE001 - не xlsx
+        src_wb = None
+    if _apply_source_look(ws, path, row_map, src_wb):
+        fixes["Ширина столбцов, высота строк и оформление взяты из исходного файла"] = 1
+    copied = _copy_other_sheets(path, wb, src_wb)
     if copied:
         fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(copied)] = len(copied)
     wb.calculation.fullCalcOnLoad = True
@@ -236,7 +245,88 @@ def heal(path, out_path=None, out_dir=None):
     return out_path, fixes, len(channels)
 
 
-def _copy_other_sheets(path, wb):
+def _apply_source_look(ws, path, row_map, src=None):
+    """Ширина столбцов, высота строк, оформление ячеек и объединения шапки - как в исходном
+    листе. Столбцы сопоставляются по заголовкам, поэтому работает и для сдвинутых раскладок.
+    Протоколам и перечню оформление не нужно: они читают только значения."""
+    import copy
+    import openpyxl
+    from openpyxl.utils import column_index_from_string, get_column_letter
+    from . import layout
+
+    try:
+        src = src or openpyxl.load_workbook(path)
+        sws, lay = layout.pick_sheet(src)
+    except Exception:  # noqa: BLE001 - не xlsx или нет листа аттестации
+        return False
+    # стандартный столбец -> столбец исходного листа
+    std_keys = {"A": "num", "B": "kks", "C": "name", "D": "low", "E": "high", "F": "unit", "G": "pct",
+                "H": "input", "I": "output", "O": "et", "P": "pip_ik", "Q": "q", "R": "allowed",
+                "S": "verdict", "T": "pip", "U": "pip_err", "V": "module", "W": "module_err",
+                "X": "allowed_ik", "Y": "notes"}
+    cmap = {std: lay[k] for std, k in std_keys.items() if lay.get(k)}
+    if "D" not in cmap and lay.get("range"):  # ТА-3: диапазон текстом в одном столбце
+        cmap["D"] = lay["range"]
+    for std, srcc in zip(MEAS, lay.get("m", [])):
+        cmap[std] = srcc
+    if lay.get("et"):  # «Среднее значение погрешности» - столбец перед «ЭТ ИК»
+        prev = column_index_from_string(lay["et"]) - 1
+        if prev >= 1 and get_column_letter(prev) not in cmap.values():
+            cmap["N"] = get_column_letter(prev)
+
+    # ширины: у исходника бывают группы столбцов (min..max) и ширина «по умолчанию»
+    widths = {}
+    for dim in sws.column_dimensions.values():
+        if dim.width:
+            lo = dim.min or column_index_from_string(dim.index)
+            for i in range(lo, (dim.max or lo) + 1):
+                widths[i] = dim.width
+    fmt = sws.sheet_format
+    ws.sheet_format.defaultColWidth = fmt.defaultColWidth
+    ws.sheet_format.baseColWidth = fmt.baseColWidth
+    ws.sheet_format.defaultRowHeight = fmt.defaultRowHeight
+    for std, srcc in cmap.items():
+        w = widths.get(column_index_from_string(srcc))
+        if w:
+            ws.column_dimensions[std].width = w
+        elif std in ws.column_dimensions:  # у исходника ширина по умолчанию - и у копии
+            del ws.column_dimensions[std]
+    looks = {}  # одинаковые стили копируются один раз - иначе тысячи строк идут минутами
+    for dst_row, src_row in row_map.items():
+        if not src_row:
+            continue
+        h = sws.row_dimensions[src_row].height if src_row in sws.row_dimensions else None
+        ws.row_dimensions[dst_row].height = h
+        for std, srcc in cmap.items():
+            sc = sws["%s%d" % (srcc, src_row)]
+            if not sc.has_style:
+                continue
+            key = tuple(sc._style)
+            lk = looks.get(key)
+            if lk is None:
+                lk = looks[key] = (copy.copy(sc.font), copy.copy(sc.border), copy.copy(sc.fill),
+                                   copy.copy(sc.alignment), sc.number_format)
+            d = ws["%s%d" % (std, dst_row)]
+            d.font, d.border, d.fill, d.alignment = lk[:4]
+            if not isinstance(d.value, str) or not d.value.startswith("="):
+                d.number_format = lk[4]
+    # объединения шапки (строки 1-2): «Диапазон измерения ИК» над D..F и т.п.
+    inv = {}
+    for std, srcc in cmap.items():
+        inv[column_index_from_string(srcc)] = column_index_from_string(std)
+    for rng in sws.merged_cells.ranges:
+        if rng.max_row > 2:
+            continue
+        a, b = inv.get(rng.min_col), inv.get(rng.max_col)
+        if a and b and b - a == rng.max_col - rng.min_col:
+            try:
+                _merge(ws, start_row=rng.min_row, start_column=a, end_row=rng.max_row, end_column=b)
+            except ValueError:
+                pass
+    return True
+
+
+def _copy_other_sheets(path, wb, src=None):
     """Листы исходного файла, кроме листа аттестации, - в копию как есть.
 
     Раньше копия содержала только лист «Аттестация», и, например, «Перечень ИК» пропадал.
@@ -247,11 +337,12 @@ def _copy_other_sheets(path, wb):
     from . import layout
 
     try:
-        src = openpyxl.load_workbook(path)
+        src = src or openpyxl.load_workbook(path)
         att, _lay = layout.pick_sheet(src)
     except Exception:  # не xlsx или нет листа аттестации - копировать нечего
         return []
     copied = []
+    looks = {}  # одинаковые стили копируются один раз
     for sws in src.worksheets:
         if sws is att:
             continue
@@ -265,11 +356,15 @@ def _copy_other_sheets(path, wb):
                     continue
                 d = dws.cell(row=cell.row, column=cell.column, value=cell.value)
                 if cell.has_style:  # индексы стилей у книг разные - копируем сами стили
-                    d.font, d.border, d.fill = copy.copy(cell.font), copy.copy(cell.border), copy.copy(cell.fill)
-                    d.alignment, d.protection = copy.copy(cell.alignment), copy.copy(cell.protection)
-                    d.number_format = cell.number_format
+                    key = tuple(cell._style)
+                    lk = looks.get(key)
+                    if lk is None:
+                        lk = looks[key] = (copy.copy(cell.font), copy.copy(cell.border), copy.copy(cell.fill),
+                                           copy.copy(cell.alignment), copy.copy(cell.protection),
+                                           cell.number_format)
+                    d.font, d.border, d.fill, d.alignment, d.protection, d.number_format = lk
         for rng in sws.merged_cells.ranges:
-            dws.merge_cells(str(rng))
+            _merge(dws, str(rng))
         for key, dim in sws.column_dimensions.items():
             dws.column_dimensions[key].width = dim.width
             dws.column_dimensions[key].hidden = dim.hidden
@@ -279,6 +374,16 @@ def _copy_other_sheets(path, wb):
         dws.freeze_panes = sws.freeze_panes
         copied.append(title)
     return copied
+
+
+def _merge(ws, *args, **kw):
+    """Объединить ячейки без перерисовки рамок (openpyxl делает это очень медленно;
+    рамки и так переносятся из исходного файла по ячейкам)."""
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.merge import MergedCellRange
+    coord = args[0] if args else "%s%d:%s%d" % (get_column_letter(kw["start_column"]), kw["start_row"],
+                                                 get_column_letter(kw["end_column"]), kw["end_row"])
+    ws.merged_cells.add(MergedCellRange(ws, coord))
 
 
 def _fmt(v):

@@ -179,21 +179,78 @@ def _number_from_one(sect):
     pg.set(W + "start", "1")
 
 
+def _protocol_elements(proto, ch, n, ranges, station, executor):
+    """Элементы одного протокола (копия образца с подставленными значениями)."""
+    els = [copy.deepcopy(el) for el in proto]
+    for el in els:
+        for tbl in [el] if el.tag == W + "tbl" else []:
+            _expand_group(tbl, "т.", ch.points, point_fields)
+        fill(el, protocol_fields(ch, ranges, station, executor))
+    if n and els:
+        _page_break_before(els[0])
+    return els
+
+
 def build_protocols(channels, ranges, station, executor, template=None):
     doc = Document(template or template_path("protocol.docx"))
     body, sect, proto = _body_parts(doc)
     _number_from_one(sect)
     for n, ch in enumerate(channels):
-        els = [copy.deepcopy(el) for el in proto]
-        for el in els:
-            for tbl in [el] if el.tag == W + "tbl" else []:
-                _expand_group(tbl, "т.", ch.points, point_fields)
-            fill(el, protocol_fields(ch, ranges, station, executor))
-        if n and els:
-            _page_break_before(els[0])
-        for el in els:
+        for el in _protocol_elements(proto, ch, n, ranges, station, executor):
             _append(body, sect, el)
     return doc
+
+
+def write_protocols(path, channels, ranges, station, executor, template=None):
+    """То же, что build_protocols(...).save(path), но протоколы пишутся в файл по одному.
+
+    Один протокол по образцу заказчика - около 140 КБ XML; дерево 1500 протоколов в
+    32-битной программе не помещается в память (MemoryError). Здесь в памяти всегда
+    только один протокол.
+    """
+    import io
+    import zipfile
+    from lxml import etree
+
+    doc = Document(template or template_path("protocol.docx"))
+    body, sect, proto = _body_parts(doc)
+    _number_from_one(sect)
+    if channels:  # колонтитулы общие - метки из первого канала
+        vals = protocol_fields(channels[0], ranges, station, executor)
+        for part in _header_footer_parts(doc):
+            fill(part, vals)
+    # корень документа с пустым телом: всё до <w:sectPr> - начало, остальное - конец
+    marker = etree.Comment("PLUSULTRA_BODY")
+    if sect is not None:
+        sect.addprevious(marker)
+    else:
+        body.append(marker)
+    xml = etree.tostring(doc.element, encoding="UTF-8", standalone=True)
+    head, tail = xml.split(b"<!--PLUSULTRA_BODY-->", 1)
+    body.remove(marker)
+    buf = io.BytesIO()
+    doc.save(buf)
+    src = zipfile.ZipFile(io.BytesIO(buf.getvalue()))
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src.infolist():
+            if item.filename != "word/document.xml":
+                out.writestr(item, src.read(item.filename))
+        with out.open("word/document.xml", "w") as f:
+            f.write(head)
+            for n, ch in enumerate(channels):
+                for el in _protocol_elements(proto, ch, n, ranges, station, executor):
+                    f.write(etree.tostring(el))
+            f.write(tail)
+    return path
+
+
+def _header_footer_parts(doc):
+    for sec in doc.sections:
+        for part in (sec.header, sec.footer):
+            try:
+                yield part._element
+            except AttributeError:
+                pass
 
 
 # ---------- перечень и градуировочные таблицы ----------
@@ -349,7 +406,7 @@ def save_protocols(channels, out_dir, ranges, station, executor, template=None):
     first, last = channels[0], channels[-1]
     name = "Протоколы №%s" % first.num + ("-%s" % last.num if last is not first else "")
     path = unique_path(out_dir, name)
-    build_protocols(channels, ranges, station, executor, template).save(path)
+    write_protocols(path, channels, ranges, station, executor, template)
     return path
 
 
