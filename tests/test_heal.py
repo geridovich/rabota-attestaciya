@@ -54,6 +54,27 @@ class HealTest(unittest.TestCase):
             self.assertEqual(ws["I5"].value, "=ROUND((E4-D4)*25%+D4,10)")
             self.assertTrue(str(ws["S4"].value).startswith("=IF(Q4>R4"))
 
+    def test_other_sheets_kept(self):
+        """Лист «Перечень ИК» рядом с листом аттестации не пропадает после лечения."""
+        import openpyxl
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "two.xlsx")
+            make_messy(src)
+            wb = openpyxl.load_workbook(src)
+            ws = wb.create_sheet("Перечень ИК")
+            ws["A1"], ws["B1"], ws["A4"], ws["B4"] = "№", "KKS", 1, "SG23P001"
+            ws.merge_cells("A1:A2")
+            ws.column_dimensions["B"].width = 17
+            wb.save(src)
+            out, fixes, _n = heal.heal(src)
+            res = openpyxl.load_workbook(out)
+            self.assertEqual(res.sheetnames, ["Аттестация", "Перечень ИК"])
+            p = res["Перечень ИК"]
+            self.assertEqual((p["A4"].value, p["B4"].value), (1, "SG23P001"))
+            self.assertIn("A1:A2", [str(r) for r in p.merged_cells.ranges])
+            self.assertEqual(p.column_dimensions["B"].width, 17)
+            self.assertTrue(any(k.startswith("Остальные листы перенесены") for k in fixes))
+
 
 if __name__ == "__main__":
     unittest.main()

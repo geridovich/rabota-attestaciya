@@ -10,6 +10,7 @@
   * числа записаны текстом («0,5»), переносы строк в названиях;
   * нет действительного значения (I) или формул N, O, Q, S - формулы ставятся заново;
   * нет допустимой погрешности (R) - формула 1,1·√(P² + W²);
+  * остальные листы файла (например «Перечень ИК») переносятся в копию как есть;
   * измерение заполнено не во всех столбцах J..M - одинаковое значение дописывается.
 Исходный файл не меняется, результат - копия «… (вылечено).xlsx».
 """
@@ -218,6 +219,9 @@ def heal(path, out_path=None, out_dir=None):
         r = last + 1
 
     ws.freeze_panes = "D4"
+    copied = _copy_other_sheets(path, wb)
+    if copied:
+        fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(copied)] = len(copied)
     wb.calculation.fullCalcOnLoad = True
     if out_path is None:
         src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
@@ -230,6 +234,51 @@ def heal(path, out_path=None, out_dir=None):
             out_path, n = "%s (вылечено %d).xlsx" % (base, n), n + 1
     wb.save(out_path)
     return out_path, fixes, len(channels)
+
+
+def _copy_other_sheets(path, wb):
+    """Листы исходного файла, кроме листа аттестации, - в копию как есть.
+
+    Раньше копия содержала только лист «Аттестация», и, например, «Перечень ИК» пропадал.
+    Переносятся значения и формулы, оформление ячеек, объединения, ширина столбцов и высота строк.
+    """
+    import copy
+    import openpyxl
+    from . import layout
+
+    try:
+        src = openpyxl.load_workbook(path)
+        att, _lay = layout.pick_sheet(src)
+    except Exception:  # не xlsx или нет листа аттестации - копировать нечего
+        return []
+    copied = []
+    for sws in src.worksheets:
+        if sws is att:
+            continue
+        title = sws.title
+        while title in wb.sheetnames:
+            title += " (исх.)"
+        dws = wb.create_sheet(title)
+        for row in sws.iter_rows():
+            for cell in row:
+                if cell.__class__.__name__ == "MergedCell":
+                    continue
+                d = dws.cell(row=cell.row, column=cell.column, value=cell.value)
+                if cell.has_style:  # индексы стилей у книг разные - копируем сами стили
+                    d.font, d.border, d.fill = copy.copy(cell.font), copy.copy(cell.border), copy.copy(cell.fill)
+                    d.alignment, d.protection = copy.copy(cell.alignment), copy.copy(cell.protection)
+                    d.number_format = cell.number_format
+        for rng in sws.merged_cells.ranges:
+            dws.merge_cells(str(rng))
+        for key, dim in sws.column_dimensions.items():
+            dws.column_dimensions[key].width = dim.width
+            dws.column_dimensions[key].hidden = dim.hidden
+        for key, dim in sws.row_dimensions.items():
+            dws.row_dimensions[key].height = dim.height
+            dws.row_dimensions[key].hidden = dim.hidden
+        dws.freeze_panes = sws.freeze_panes
+        copied.append(title)
+    return copied
 
 
 def _fmt(v):
