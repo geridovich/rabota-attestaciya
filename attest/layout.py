@@ -88,10 +88,12 @@ def parse_range(text):
     return to_float(a), to_float(b.split()[0] if b.split() else b)
 
 
-def pick_sheet(wb):
-    """Первый лист, похожий на лист аттестации; (лист, раскладка)."""
+def pick_sheet(wb, exclude=None):
+    """Первый лист, похожий на лист аттестации; (лист, раскладка). exclude - пропустить лист."""
     best = None
     for ws in wb.worksheets:
+        if ws is exclude:
+            continue
         head = [list(r) for r in ws.iter_rows(min_row=1, max_row=2, values_only=True)]
         while len(head) < 2:
             head.append([])

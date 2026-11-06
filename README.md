@@ -10,6 +10,9 @@
   готовая программа для Windows Vista/7/8/10/11, 32- и 64-битных. Python не нужен,
   запуск двойным щелчком. Если Windows покажет «Система Windows защитила ваш
   компьютер», нажмите «Подробнее» → «Выполнить в любом случае».
+* [PlusUltra64.exe](https://github.com/geridovich/rabota-attestaciya/raw/main/release/PlusUltra64.exe) —
+  та же программа для 64-битных Windows 10/11: ей доступна вся оперативная память
+  и она быстрее на больших файлах (тысячи каналов). На Vista/7 используйте PlusUltra.exe.
 
 ## Как пользоваться
 
@@ -80,6 +83,7 @@
 ## Сборка и тесты
 
 ```
-build_exe.bat
+build_exe.bat      (PlusUltra.exe, 32 бита, Python 3.7)
+build_exe64.bat    (PlusUltra64.exe, 64 бита, Python 3.8+)
 .venv\Scripts\python -m unittest discover -s tests
 ```

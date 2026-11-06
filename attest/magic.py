@@ -21,6 +21,49 @@ from .data import is_kks, to_float
 _rng = random.SystemRandom()  # каждый запуск - новый случайный набор
 
 
+class _Cell:
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+
+class _ValueSheet:
+    """Сохранённые Excel значения одного листа - для чтения как ws["B12"].value.
+
+    Раньше книга открывалась второй раз целиком (data_only), на больших файлах это
+    десятки секунд; потоковое чтение только значений одного листа в разы быстрее.
+    Скрытые строки берутся из уже открытого листа с формулами.
+    """
+
+    def __init__(self, rows, row_dimensions, title):
+        self.rows = rows
+        self.max_row = len(rows)
+        self.row_dimensions = row_dimensions
+        self.title = title
+
+    def __getitem__(self, coord):
+        i = 0
+        while coord[i].isalpha():
+            i += 1
+        r = int(coord[i:])
+        col = 0
+        for ch in coord[:i].upper():
+            col = col * 26 + ord(ch) - 64
+        row = self.rows[r - 1] if 0 < r <= len(self.rows) else ()
+        return _Cell(row[col - 1] if col <= len(row) else None)
+
+
+def _value_sheet(path, ws):
+    import openpyxl
+    vals = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        rows = [tuple(r) for r in vals[ws.title].iter_rows(min_row=1, values_only=True)]
+    finally:
+        vals.close()
+    return _ValueSheet(rows, ws.row_dimensions, ws.title)
+
+
 def _cached(ws_vals, col, r):
     if not col:
         return None
@@ -203,9 +246,8 @@ def make_good(path, head_rows, percent, rng=_rng, out_dir=None):
     """
     import openpyxl
     wb = openpyxl.load_workbook(path)
-    vals = openpyxl.load_workbook(path, data_only=True)
-    ws_vals, lay = layout.pick_sheet(vals)
-    ws = wb[ws_vals.title]
+    ws, lay = layout.pick_sheet(wb)
+    ws_vals = _value_sheet(path, ws)
     heads = set(head_rows)
     channels = [c for c in read_channels(ws_vals, lay) if c["row"] in heads]
     impossible = [c["row"] for c in channels if max_error(c) <= 0]
@@ -236,10 +278,9 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
     tick(0.02)
     wb = openpyxl.load_workbook(path)
     tick(0.25)
-    vals = openpyxl.load_workbook(path, data_only=True)
+    ws, lay = layout.pick_sheet(wb)
+    ws_vals = _value_sheet(path, ws)
     tick(0.45)
-    ws_vals, lay = layout.pick_sheet(vals)
-    ws = wb[ws_vals.title]
     all_channels = read_channels(ws_vals, lay)
     channels = [c for c in all_channels
                 if c["points"] and all(p["empty"] for p in c["points"])

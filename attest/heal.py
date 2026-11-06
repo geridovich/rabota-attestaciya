@@ -14,6 +14,7 @@
   * измерение заполнено не во всех столбцах J..M - одинаковое значение дописывается.
 Исходный файл не меняется, результат - копия «… (вылечено).xlsx».
 """
+import copy
 import os
 import re
 
@@ -125,9 +126,18 @@ def heal(path, out_path=None, out_dir=None, progress=None):
     channels = _group(rows, fixes)
     c = COLUMNS
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Аттестация"
+    # Копия строится прямо в исходной книге: новый лист аттестации ставится на место
+    # старого, остальные листы остаются как есть - их не нужно копировать по ячейкам.
+    try:
+        from . import layout
+        wb = openpyxl.load_workbook(path)
+        old_ws, _lay = layout.pick_sheet(wb)
+        ws = wb.create_sheet("Аттестация (новая)", wb.index(old_ws))
+    except Exception:  # noqa: BLE001 - не xlsx или нет листа аттестации - новая книга
+        wb, old_ws = openpyxl.Workbook(), None
+        ws = wb.active
+        ws.title = "Аттестация"
+    tick(0.35)
     thin = Side(style="thin")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -145,6 +155,7 @@ def heal(path, out_path=None, out_dir=None, progress=None):
             ws[col + str(r)].font = Font(bold=r < 3)
 
     r = 4
+    base_style = None
     row_map = {1: 1, 2: 2, 3: 3}  # строка копии -> строка исходного листа (для оформления)
     # номер протокола = № канала, поэтому номера должны быть разными;
     # новый номер не должен совпасть ни с уже выданным, ни с чьим-то ещё в файле
@@ -153,7 +164,7 @@ def heal(path, out_path=None, out_dir=None, progress=None):
     seq = 0
     for chn, ch in enumerate(channels):
         if chn % 20 == 0:
-            tick(0.15 + 0.2 * chn / max(1, len(channels)))
+            tick(0.35 + 0.25 * chn / max(1, len(channels)))
         h = ch["head"]
         first = r
         pts = ch["points"] or [h]
@@ -218,27 +229,29 @@ def heal(path, out_path=None, out_dir=None, progress=None):
         for rr in range(first, last + 1):
             for col in WIDTHS:
                 cell = ws["%s%d" % (col, rr)]
-                cell.border = border
-                cell.alignment = center
+                if base_style is None:  # рамка + выравнивание один раз, дальше - копия набора стилей
+                    cell.border = border
+                    cell.alignment = center
+                    base_style = copy.copy(cell._style)
+                else:
+                    cell._style = copy.copy(base_style)
         if last > first:
             for col in CHANNEL_COLS:
                 _merge(ws, "%s%d:%s%d" % (col, first, col, last))
         r = last + 1
 
     ws.freeze_panes = "D4"
-    try:
-        import openpyxl as _ox
-        tick(0.36)
-        src_wb = _ox.load_workbook(path)  # одна загрузка с оформлением на оба шага ниже
-        tick(0.55)
-    except Exception:  # noqa: BLE001 - не xlsx
-        src_wb = None
-    if _apply_source_look(ws, path, row_map, src_wb, lambda f: tick(0.55 + 0.2 * f)):
-        fixes["Ширина столбцов, высота строк и оформление взяты из исходного файла"] = 1
-    copied = _copy_other_sheets(path, wb, src_wb, lambda f: tick(0.75 + 0.15 * f))
+    tick(0.6)
+    if old_ws is not None:
+        if _apply_source_look(ws, path, row_map, wb, lambda f: tick(0.6 + 0.3 * f)):
+            fixes["Ширина столбцов, высота строк и оформление взяты из исходного файла"] = 1
+        wb.remove(old_ws)
+        ws.title = "Аттестация" if "Аттестация" not in wb.sheetnames else "Аттестация (вылечено)"
+        wb.active = wb.index(ws)
+        others = [sh.title for sh in wb.worksheets if sh is not ws]
+        if others:
+            fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(others)] = len(others)
     tick(0.9)
-    if copied:
-        fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(copied)] = len(copied)
     wb.calculation.fullCalcOnLoad = True
     if out_path is None:
         src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
@@ -265,7 +278,7 @@ def _apply_source_look(ws, path, row_map, src=None, tick=None):
 
     try:
         src = src or openpyxl.load_workbook(path)
-        sws, lay = layout.pick_sheet(src)
+        sws, lay = layout.pick_sheet(src, exclude=ws)
     except Exception:  # noqa: BLE001 - не xlsx или нет листа аттестации
         return False
     # стандартный столбец -> столбец исходного листа
@@ -301,6 +314,7 @@ def _apply_source_look(ws, path, row_map, src=None, tick=None):
         elif std in ws.column_dimensions:  # у исходника ширина по умолчанию - и у копии
             del ws.column_dimensions[std]
     looks = {}  # одинаковые стили копируются один раз - иначе тысячи строк идут минутами
+    same_book = sws.parent is ws.parent
     total = max(1, len(row_map))
     for k, (dst_row, src_row) in enumerate(row_map.items()):
         if tick and k % 200 == 0:
@@ -313,15 +327,23 @@ def _apply_source_look(ws, path, row_map, src=None, tick=None):
             sc = sws["%s%d" % (srcc, src_row)]
             if not sc.has_style:
                 continue
-            key = tuple(sc._style)
-            lk = looks.get(key)
-            if lk is None:
-                lk = looks[key] = (copy.copy(sc.font), copy.copy(sc.border), copy.copy(sc.fill),
-                                   copy.copy(sc.alignment), sc.number_format)
             d = ws["%s%d" % (std, dst_row)]
-            d.font, d.border, d.fill, d.alignment = lk[:4]
-            if not isinstance(d.value, str) or not d.value.startswith("="):
-                d.number_format = lk[4]
+            formula = isinstance(d.value, str) and d.value.startswith("=")
+            if same_book:  # та же книга - набор стилей переносится как есть
+                d._style = copy.copy(sc._style)
+                if formula and sc.number_format == "@":  # «текстовый» формат ломает формулу
+                    d.number_format = "General"
+                continue
+            key = (tuple(sc._style), formula, tuple(d._style) if formula else None)
+            done = looks.get(key)
+            if done is not None:  # такой же стиль уже переносили - копия готового набора
+                d._style = copy.copy(done)
+                continue
+            d.font, d.border, d.fill = copy.copy(sc.font), copy.copy(sc.border), copy.copy(sc.fill)
+            d.alignment = copy.copy(sc.alignment)
+            if not formula:
+                d.number_format = sc.number_format
+            looks[key] = copy.copy(d._style)
     # объединения шапки (строки 1-2): «Диапазон измерения ИК» над D..F и т.п.
     inv = {}
     for std, srcc in cmap.items():
@@ -372,12 +394,14 @@ def _copy_other_sheets(path, wb, src=None, tick=None):
                 d = dws.cell(row=cell.row, column=cell.column, value=cell.value)
                 if cell.has_style:  # индексы стилей у книг разные - копируем сами стили
                     key = tuple(cell._style)
-                    lk = looks.get(key)
-                    if lk is None:
-                        lk = looks[key] = (copy.copy(cell.font), copy.copy(cell.border), copy.copy(cell.fill),
-                                           copy.copy(cell.alignment), copy.copy(cell.protection),
-                                           cell.number_format)
-                    d.font, d.border, d.fill, d.alignment, d.protection, d.number_format = lk
+                    done = looks.get(key)
+                    if done is not None:  # копия готового набора стилей - без поиска по таблицам
+                        d._style = copy.copy(done)
+                        continue
+                    d.font, d.border, d.fill = copy.copy(cell.font), copy.copy(cell.border), copy.copy(cell.fill)
+                    d.alignment, d.protection = copy.copy(cell.alignment), copy.copy(cell.protection)
+                    d.number_format = cell.number_format
+                    looks[key] = copy.copy(d._style)
         for rng in sws.merged_cells.ranges:
             _merge(dws, str(rng))
         for key, dim in sws.column_dimensions.items():
@@ -398,7 +422,9 @@ def _merge(ws, *args, **kw):
     from openpyxl.worksheet.merge import MergedCellRange
     coord = args[0] if args else "%s%d:%s%d" % (get_column_letter(kw["start_column"]), kw["start_row"],
                                                  get_column_letter(kw["end_column"]), kw["end_row"])
-    ws.merged_cells.add(MergedCellRange(ws, coord))
+    # прямо в множество: merged_cells.add() перебирает все уже объединённые
+    # диапазоны, и на тысячах каналов это минуты
+    ws.merged_cells.ranges.add(MergedCellRange(ws, coord))
 
 
 def _fmt(v):
