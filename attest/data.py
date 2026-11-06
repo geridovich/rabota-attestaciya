@@ -215,7 +215,16 @@ class Channel:
 
     @property
     def allowed_value(self):
-        return self.allowed if self.allowed is not None else self.allowed_fallback
+        if self.allowed is not None:
+            return self.allowed
+        if self.allowed_fallback is not None:
+            return self.allowed_fallback
+        # R - формула 1,1·√(P²+W²) без сохранённого значения (файл после «Полечить»)
+        pip = self.pip_ik if self.pip_ik is not None else self.pip_err
+        if pip is not None:
+            w = self.module_err if self.module_err is not None else 0.15
+            return 1.1 * math.sqrt(pip * pip + w * w)
+        return None
 
     @property
     def total(self):

@@ -124,6 +124,11 @@ class PasteTest(unittest.TestCase):
         self.assertFalse(data.is_kks("НЕТ НА МНЕМОСХЕМЕ", None, None))
         self.assertTrue(data.is_kks("10HBK50CQ004"))
 
+    def test_allowed_from_formula_without_cache(self):
+        """R = 1,1·√(P²+W²) формулой без сохранённого значения - считаем сами."""
+        c = data.Channel(num="1", kks="K", name="N", low=0, high=1, unit="", pip_ik=0.5, module_err=0.15)
+        self.assertAlmostEqual(c.allowed_value, 1.1 * (0.25 + 0.0225) ** 0.5)
+
     def test_paste_without_number(self):
         text = "\n".join(ln.split("\t", 1)[1] for ln in PASTE_NEG.strip("\n").split("\n"))
         ch = data.channels_from_rows(data.rows_from_text(text))[0]
