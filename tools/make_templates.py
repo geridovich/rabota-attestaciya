@@ -171,3 +171,113 @@ def main(proto_src, perechen_src):
 
 if __name__ == "__main__":
     main(sys.argv[1], sys.argv[2])
+
+
+def perechen_v2(src, grad_tpl):
+    """Перечень нового вида (одна строка на канал, границы и ед. изм. отдельными
+    столбцами, без типа ПИП) + градуировочные таблицы из прежнего шаблона без изменений.
+
+        python -c "import tools.make_templates as m; m.perechen_v2('Перечень ИК ГДК-2.docx',
+                   'attest/templates/perechen.docx').save('attest/templates/perechen.docx')"
+    """
+    grad = Document(grad_tpl)
+    doc = Document(src)
+    body = doc.element.body
+    kids = [e for e in body if e.tag != W + "sectPr"]
+    title = next(e for e in kids if e.tag == W + "p" and text(e).startswith("Перечень"))
+    set_text(title, "Перечень измерительных каналов {{ПЕРЕЧЕНЬ}}")
+    main = next(e for e in kids if e.tag == W + "tbl")
+    tr = rows(main)
+    for r in tr[:3]:  # шапка (2 строки + номера столбцов) повторяется на каждой странице
+        trpr = r.find(W + "trPr")
+        if trpr is None:
+            trpr = r.makeelement(W + "trPr", {})
+            r.insert(0, trpr)
+        if trpr.find(W + "tblHeader") is None:
+            trpr.append(trpr.makeelement(W + "tblHeader", {}))
+    for r in tr[4:]:
+        remove(r)
+    keys = ("п.№", "п.KKS", "п.наим", "п.низ", "п.верх", "п.ед", "п.пип_погр", "п.модуль",
+            "п.модуль_погр", "п.ик")
+    for c, key in zip(cells(tr[3]), keys):
+        set_text(c, "{{%s}}" % key)
+    for e in kids[kids.index(main) + 1:]:  # продолжение таблицы после разрыва страницы
+        remove(e)
+    # градуировочные таблицы - как были
+    gkids = [e for e in grad.element.body if e.tag != W + "sectPr"]
+    gmain = next(e for e in gkids if e.tag == W + "tbl")
+    sect = body.sectPr
+    copied = [copy.deepcopy(e) for e in gkids[gkids.index(gmain) + 1:]]
+    _keep_grad_styles(doc, grad, copied)
+    for e in copied:
+        sect.addprevious(e)
+    pg = sect.find(W + "pgNumType")  # нумерация страниц с 1, как в протоколах
+    if pg is not None:
+        pg.set(W + "start", "1")
+    return doc
+
+
+def _keep_grad_styles(doc, grad, elements):
+    """Стили градуировочной части берутся из прежнего шаблона под своими именами
+    (grad-…), чтобы «Приложение Г» и таблицы выглядели как раньше, а не по стилям
+    нового образца перечня."""
+    st_new = doc.styles.element
+    st_old = grad.styles.element
+    old = {s.get(W + "styleId"): s for s in st_old.findall(W + "style")}
+    default_para = next(s.get(W + "styleId") for s in old.values()
+                        if s.get(W + "type") == "paragraph" and s.get(W + "default") == "1")
+    used = set()
+    for el in elements:
+        for tag in ("pStyle", "rStyle", "tblStyle"):
+            for ref in el.iter(W + tag):
+                used.add(ref.get(W + "val"))
+        for p in el.iter(W + "p"):  # абзацы без стиля - «Обычный» прежнего шаблона
+            ppr = p.find(W + "pPr")
+            if ppr is None:
+                ppr = p.makeelement(W + "pPr", {})
+                p.insert(0, ppr)
+            if ppr.find(W + "pStyle") is None:
+                ps = ppr.makeelement(W + "pStyle", {W + "val": default_para})
+                ppr.insert(0, ps)
+                used.add(default_para)
+    # стили, от которых наследуются используемые
+    todo = list(used)
+    while todo:
+        sid = todo.pop()
+        s = old.get(sid)
+        b = s.find(W + "basedOn") if s is not None else None
+        if b is not None and b.get(W + "val") not in used:
+            used.add(b.get(W + "val"))
+            todo.append(b.get(W + "val"))
+    defaults_rpr = st_old.find(W + "docDefaults/" + W + "rPrDefault/" + W + "rPr")
+    for sid in used:
+        if sid not in old:
+            continue
+        s = copy.deepcopy(old[sid])
+        s.set(W + "styleId", "grad-" + sid)
+        if W + "default" in s.attrib:
+            del s.attrib[W + "default"]
+        name = s.find(W + "name")
+        if name is not None:
+            name.set(W + "val", "grad " + name.get(W + "val"))
+        b = s.find(W + "basedOn")
+        if b is not None:
+            b.set(W + "val", "grad-" + b.get(W + "val"))
+        elif defaults_rpr is not None:  # корневой стиль - шрифт по умолчанию прежнего шаблона
+            rpr = s.find(W + "rPr")
+            if rpr is None:
+                rpr = s.makeelement(W + "rPr", {})
+                s.append(rpr)
+            for child in defaults_rpr:
+                if rpr.find(child.tag) is None:
+                    rpr.append(copy.deepcopy(child))
+        for tag in ("next", "link"):
+            e = s.find(W + tag)
+            if e is not None:
+                s.remove(e)
+        st_new.append(s)
+    for el in elements:
+        for tag in ("pStyle", "rStyle", "tblStyle"):
+            for ref in el.iter(W + tag):
+                if ref.get(W + "val") in old:
+                    ref.set(W + "val", "grad-" + ref.get(W + "val"))

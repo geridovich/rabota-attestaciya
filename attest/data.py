@@ -162,6 +162,7 @@ class Channel:
     allowed: float = None
     notes: str = ""
     points: list = field(default_factory=list)
+    plan: list = field(default_factory=list)  # все контрольные точки, в т.ч. ещё без измерений
     result: object = None
     error: str = ""
     pip_fallback: float = None      # значения из настроек, если в данных пусто
@@ -535,14 +536,17 @@ def channels_from_rows(rows):
                 why_bad(row.get(letter)) + (" Столбец: %s." % what if what else ""),
                 "Исправьте ячейки, на которые ссылается формула (в них должны быть числа)."
                 if to_text(row.get(letter)).startswith("#") else "Впишите в ячейку число."))
-        if not measured:
-            continue
         pct = to_float(g(row, "pct"))
         xd = to_float(g(row, "output"))
         if xd is None and pct is not None:  # формула не посчитана - считаем сами
             xd = (cur.high - cur.low) * pct / 100.0 + cur.low
         if xd is not None:  # формула Excel даёт 1,2000000000000002 вместо 1,2
             xd = round(xd, 10)
+        if pct is not None and xd is not None:
+            # контрольные точки - и без измерений (нужны градуировочным таблицам)
+            cur.plan.append(Point(pct, to_float(g(row, "input")), xd, measured))
+        if not measured:
+            continue
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
     # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны;
     # скрытые в Excel каналы (все строки канала скрыты, как № 37, 39 в К-8) не учитываются

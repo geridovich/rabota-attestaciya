@@ -253,15 +253,21 @@ def calibration_input(ch, kind, p):
     return round(4 + 16 * pct / 100.0, 6)
 
 
+def cal_points(ch):
+    """Контрольные точки для градуировочной таблицы: все, даже если измерений ещё нет."""
+    return getattr(ch, "plan", None) or ch.points
+
+
 def calibration_groups(channels):
     """Уникальные диапазоны по видам сигнала, в порядке появления."""
     groups = {}
     for ch in channels:
         kind = signal_kind(ch)
-        if kind is None or not ch.points:
+        pts = cal_points(ch)
+        if kind is None or not pts:
             continue
         key = (rng_text(ch), ch.unit,
-               tuple((num(p.pct), num(p.xd), num(calibration_input(ch, kind, p))) for p in ch.points))
+               tuple((num(p.pct), num(p.xd), num(calibration_input(ch, kind, p))) for p in pts))
         lst = groups.setdefault(kind, [])
         if key not in [k for k, _ in lst]:
             lst.append((key, ch))
@@ -274,6 +280,7 @@ def perechen_fields(ch):
         "п.№": ch.num, "п.KKS": ch.kks, "п.наим": ch.name,
         "п.диап": "%s %s" % (rng_text(ch), ch.unit), "п.пип": ch.pip, "п.пип_погр": err_num(pip_err),
         "п.ик": err_num(ch.allowed_value), "п.модуль": ch.module, "п.модуль_погр": err_num(ch.module_err),
+        "п.низ": num(ch.low), "п.верх": num(ch.high), "п.ед": ch.unit,
     }
 
 
@@ -283,7 +290,7 @@ def _calibration_table(proto_tbl, kind, chans):
     nxt = _rows_with(tbl, "г2.")
     anchor = first[0]
     for ch in chans:
-        for i, p in enumerate(ch.points):
+        for i, p in enumerate(cal_points(ch)):
             src = first[0] if i == 0 else nxt[0]
             new = copy.deepcopy(src)
             vals = {"г.диап": rng_text(ch), "г.ед": ch.unit}

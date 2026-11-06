@@ -88,8 +88,10 @@ class PasteTest(unittest.TestCase):
         self.assertIn("Перечень измерительных каналов ПТК САУГ КА-4 Выборгской ТЭЦ (ТЭЦ-17)", text)
         self.assertIn("Таблица 1 – градуировочная таблица ИК сигналов в диапазоне 4-20 мА", text)
         self.assertIn("Таблица 2 – градуировочная таблица ИК сигналов термосопротивления", text)
-        # перечень: 2 строки шапки + по 2 строки на канал
-        self.assertEqual(len(doc.tables[0].rows), 2 + 2 * 3)
+        # перечень: 3 строки шапки + по строке на канал; границы и ед. изм. отдельно
+        self.assertEqual(len(doc.tables[0].rows), 3 + 3)
+        self.assertEqual([c.text for c in doc.tables[0].rows[5].cells][:6],
+                         ["41", "01HNB02CT102", "Температура металла подшипника №2 эл. Двиг. ДС", "-50", "200", "°С"])
         # 4-20 мА считаются по % диапазона, даже если в Excel нет входного сигнала
         ma = doc.tables[1]
         self.assertEqual([[c.text for c in r.cells][-1] for r in ma.rows[2:7]], ["4", "8", "12", "16", "20"])
