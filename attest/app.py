@@ -360,7 +360,7 @@ class App(tk.Tk):
             messagebox.showerror("Полечить файл", "Не получилось: %s" % box["error"])
             return
         out, fixes, n = box["result"]
-        self.xlsx_path = out; self._set_file("%s (вылеченная копия)" % self.source_name)
+        self.xlsx_path = out; self._set_file(self.source_name)
         self.channels = []
         self.add_channels(data.channels_from_rows(data.rows_from_xlsx(out)))
         lines = ["• %s: %d" % (k, v) for k, v in fixes.items()] or ["• косяков не нашлось, файл и так в порядке"]
