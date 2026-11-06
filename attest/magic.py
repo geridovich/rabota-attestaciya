@@ -245,6 +245,8 @@ def make_good(path, head_rows, percent, rng=_rng, out_dir=None):
     сделать нельзя: допуск R не больше погрешности ПИП P]).
     """
     import openpyxl
+    from . import xlfast
+    xlfast.install()
     wb = openpyxl.load_workbook(path)
     ws, lay = layout.pick_sheet(wb)
     ws_vals = _value_sheet(path, ws)
@@ -276,6 +278,8 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
     import openpyxl
     tick = progress or (lambda f: None)  # доля сделанного 0..1 - для процентов в окне
     tick(0.02)
+    from . import xlfast
+    xlfast.install()
     wb = openpyxl.load_workbook(path)
     tick(0.25)
     ws, lay = layout.pick_sheet(wb)

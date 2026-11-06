@@ -117,6 +117,8 @@ def heal(path, out_path=None, out_dir=None, progress=None):
     """Вылечить файл. Возвращает (путь копии, {что исправлено: сколько}, каналов)."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, Side
+    from . import xlfast
+    xlfast.install()
 
     fixes = {}
     tick = progress or (lambda f: None)  # доля сделанного 0..1 - для процентов в окне
