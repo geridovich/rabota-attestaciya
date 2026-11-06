@@ -310,22 +310,46 @@ class App(tk.Tk):
             return
         self._busy = True
         self.config(cursor="watch")
-        self.status.config(text="Лечу файл…")
         path, box, out_dir = self.xlsx_path, {}, self.sub_dir(HEALED_DIR)
+        prog = self._progress("Лечу файл…")
 
         def work():  # в потоке - без обращений к Tk
             try:
-                box["result"] = heal.heal(path, out_dir=out_dir)
+                box["result"] = heal.heal(path, out_dir=out_dir, progress=prog)
             except Exception as e:  # noqa: BLE001
                 box["error"] = e
 
         threading.Thread(target=work, daemon=True).start()
         self._wait(box, self._heal_done)
 
+    def _progress(self, label):
+        """Доля сделанного 0..1 из фонового потока; окно показывает «label NN %»."""
+        state = {"label": label, "value": 0.0}
+
+        def set_value(f):
+            state["value"] = max(state["value"], min(1.0, float(f)))
+
+        set_value.state = state
+        self._prog = set_value
+        self._show_progress()
+        return set_value
+
+    def _show_progress(self):
+        prog = getattr(self, "_prog", None)
+        if prog is None:
+            return
+        st = prog.state
+        self.status.config(text="%s %d %%" % (st["label"], int(st["value"] * 100)))
+        self.after(250, self._show_progress)
+
+    def _progress_done(self):
+        self._prog = None
+
     def _wait(self, box, done):
         if not box:
             self.after(200, self._wait, box, done)
             return
+        self._progress_done()
         self._busy = False
         self.config(cursor="")
         done(box)
@@ -354,13 +378,13 @@ class App(tk.Tk):
         self.magic_sound.play()
         self._magic_busy = True
         self.config(cursor="watch")
-        self.status.config(text="Magic: заполняю измеренные значения…")
         path, pct, box = self.xlsx_path, self.magic_pct.get(), {}
         out_dir = self.sub_dir(MAGIC_DIR)  # в потоке Tk трогать нельзя
+        prog = self._progress("Magic: заполняю измерения…")
 
         def work():
             try:
-                box["result"] = magic.run(path, pct, out_dir=out_dir)
+                box["result"] = magic.run(path, pct, out_dir=out_dir, progress=prog)
             except Exception as e:  # noqa: BLE001
                 box["error"] = e
 
@@ -371,6 +395,7 @@ class App(tk.Tk):
         if not box:
             self.after(200, self._magic_wait, box, path)
             return
+        self._progress_done()
         self._magic_busy = False
         self.config(cursor="")
         if self.xlsx_path != path:
@@ -912,22 +937,49 @@ class App(tk.Tk):
                 % (len(no_date), ", ".join(no_date[:5]))):
             return
         executor = docgen.EXECUTORS[self.executor.current()]
-        path = self._run(lambda: docgen.save_protocols(chs, self.out_dir.get(), ranges,
-                                                       self.station.get().strip(), executor))
-        if not path:
-            return
-        if next_start is not None and next_start < len(self.channels):
-            self.start.set(next_start + 1)
-        self._done("Протоколов в документе: %d" % len(chs), path)
+        out_dir, station = self.out_dir.get(), self.station.get().strip()
+
+        def finished(path):
+            if next_start is not None and next_start < len(self.channels):
+                self.start.set(next_start + 1)
+            self._done("Протоколов в документе: %d" % len(chs), path)
+
+        self._run_bg("Создаю протоколы…", lambda prog: docgen.save_protocols(
+            chs, out_dir, ranges, station, executor, progress=prog), finished)
 
     def generate_perechen(self):
         if not self.channels:
             messagebox.showwarning("Нет каналов", "Сначала вставьте каналы из Excel.")
             return
-        path = self._run(lambda: docgen.save_perechen(self.channels, self.out_dir.get(),
-                                                      self.perechen.get().strip()))
-        if path:
-            self._done("Каналов в перечне: %d" % len(self.channels), path)
+        chs, out_dir, title = list(self.channels), self.out_dir.get(), self.perechen.get().strip()
+        self._run_bg("Создаю перечень…", lambda prog: docgen.save_perechen(chs, out_dir, title, progress=prog),
+                     lambda path: self._done("Каналов в перечне: %d" % len(chs), path))
+
+    def _run_bg(self, label, fn, done):
+        """fn(progress) в фоновом потоке (окно не зависает, проценты в верхней строке),
+        затем done(результат) в окне."""
+        if getattr(self, "_busy", False):
+            return
+        self._busy = True
+        self.config(cursor="watch")
+        box = {}
+        prog = self._progress(label)
+
+        def work():  # в потоке - без обращений к Tk
+            try:
+                box["result"] = fn(prog)
+            except Exception as e:  # noqa: BLE001
+                box["error"] = e
+
+        def finish(b):
+            self.refresh()
+            if "error" in b:
+                messagebox.showerror("Ошибка создания документа", str(b["error"]))
+            else:
+                done(b["result"])
+
+        threading.Thread(target=work, daemon=True).start()
+        self._wait(box, finish)
 
     def _run(self, fn):
         self.config(cursor="watch")

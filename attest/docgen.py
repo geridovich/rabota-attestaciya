@@ -201,7 +201,7 @@ def build_protocols(channels, ranges, station, executor, template=None):
     return doc
 
 
-def write_protocols(path, channels, ranges, station, executor, template=None):
+def write_protocols(path, channels, ranges, station, executor, template=None, progress=None):
     """То же, что build_protocols(...).save(path), но протоколы пишутся в файл по одному.
 
     Один протокол по образцу заказчика - около 140 КБ XML; дерево 1500 протоколов в
@@ -238,6 +238,8 @@ def write_protocols(path, channels, ranges, station, executor, template=None):
         with out.open("word/document.xml", "w") as f:
             f.write(head)
             for n, ch in enumerate(channels):
+                if progress and n % 10 == 0:
+                    progress(0.05 + 0.93 * n / max(1, len(channels)))
                 for el in _protocol_elements(proto, ch, n, ranges, station, executor):
                     f.write(etree.tostring(el))
             f.write(tail)
@@ -402,15 +404,24 @@ def unique_path(out_dir, name):
     return path
 
 
-def save_protocols(channels, out_dir, ranges, station, executor, template=None):
+def save_protocols(channels, out_dir, ranges, station, executor, template=None, progress=None):
     first, last = channels[0], channels[-1]
     name = "Протоколы №%s" % first.num + ("-%s" % last.num if last is not first else "")
     path = unique_path(out_dir, name)
-    write_protocols(path, channels, ranges, station, executor, template)
+    write_protocols(path, channels, ranges, station, executor, template, progress)
+    if progress:
+        progress(1.0)
     return path
 
 
-def save_perechen(channels, out_dir, title, template=None):
+def save_perechen(channels, out_dir, title, template=None, progress=None):
     path = unique_path(out_dir, "Перечень")
-    build_perechen(channels, title, template).save(path)
+    if progress:
+        progress(0.1)
+    doc = build_perechen(channels, title, template)
+    if progress:
+        progress(0.7)
+    doc.save(path)
+    if progress:
+        progress(1.0)
     return path

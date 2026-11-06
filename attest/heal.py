@@ -112,13 +112,16 @@ def _group(rows, fixes):
     return kept
 
 
-def heal(path, out_path=None, out_dir=None):
+def heal(path, out_path=None, out_dir=None, progress=None):
     """Вылечить файл. Возвращает (путь копии, {что исправлено: сколько}, каналов)."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, Side
 
     fixes = {}
+    tick = progress or (lambda f: None)  # доля сделанного 0..1 - для процентов в окне
+    tick(0.02)
     rows = rows_from_xlsx(path)
+    tick(0.15)
     channels = _group(rows, fixes)
     c = COLUMNS
 
@@ -148,7 +151,9 @@ def heal(path, out_path=None, out_dir=None):
     taken = {to_text(ch["head"].get(c["num"])) for ch in channels}
     used_nums = set()
     seq = 0
-    for ch in channels:
+    for chn, ch in enumerate(channels):
+        if chn % 20 == 0:
+            tick(0.15 + 0.2 * chn / max(1, len(channels)))
         h = ch["head"]
         first = r
         pts = ch["points"] or [h]
@@ -223,12 +228,15 @@ def heal(path, out_path=None, out_dir=None):
     ws.freeze_panes = "D4"
     try:
         import openpyxl as _ox
+        tick(0.36)
         src_wb = _ox.load_workbook(path)  # одна загрузка с оформлением на оба шага ниже
+        tick(0.55)
     except Exception:  # noqa: BLE001 - не xlsx
         src_wb = None
-    if _apply_source_look(ws, path, row_map, src_wb):
+    if _apply_source_look(ws, path, row_map, src_wb, lambda f: tick(0.55 + 0.2 * f)):
         fixes["Ширина столбцов, высота строк и оформление взяты из исходного файла"] = 1
-    copied = _copy_other_sheets(path, wb, src_wb)
+    copied = _copy_other_sheets(path, wb, src_wb, lambda f: tick(0.75 + 0.15 * f))
+    tick(0.9)
     if copied:
         fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(copied)] = len(copied)
     wb.calculation.fullCalcOnLoad = True
@@ -242,10 +250,11 @@ def heal(path, out_path=None, out_dir=None):
         while os.path.exists(out_path):
             out_path, n = "%s (вылечено %d).xlsx" % (base, n), n + 1
     wb.save(out_path)
+    tick(1.0)
     return out_path, fixes, len(channels)
 
 
-def _apply_source_look(ws, path, row_map, src=None):
+def _apply_source_look(ws, path, row_map, src=None, tick=None):
     """Ширина столбцов, высота строк, оформление ячеек и объединения шапки - как в исходном
     листе. Столбцы сопоставляются по заголовкам, поэтому работает и для сдвинутых раскладок.
     Протоколам и перечню оформление не нужно: они читают только значения."""
@@ -292,7 +301,10 @@ def _apply_source_look(ws, path, row_map, src=None):
         elif std in ws.column_dimensions:  # у исходника ширина по умолчанию - и у копии
             del ws.column_dimensions[std]
     looks = {}  # одинаковые стили копируются один раз - иначе тысячи строк идут минутами
-    for dst_row, src_row in row_map.items():
+    total = max(1, len(row_map))
+    for k, (dst_row, src_row) in enumerate(row_map.items()):
+        if tick and k % 200 == 0:
+            tick(k / total)
         if not src_row:
             continue
         h = sws.row_dimensions[src_row].height if src_row in sws.row_dimensions else None
@@ -326,7 +338,7 @@ def _apply_source_look(ws, path, row_map, src=None):
     return True
 
 
-def _copy_other_sheets(path, wb, src=None):
+def _copy_other_sheets(path, wb, src=None, tick=None):
     """Листы исходного файла, кроме листа аттестации, - в копию как есть.
 
     Раньше копия содержала только лист «Аттестация», и, например, «Перечень ИК» пропадал.
@@ -343,7 +355,10 @@ def _copy_other_sheets(path, wb, src=None):
         return []
     copied = []
     looks = {}  # одинаковые стили копируются один раз
-    for sws in src.worksheets:
+    sheets = list(src.worksheets)
+    for si, sws in enumerate(sheets):
+        if tick:
+            tick(si / max(1, len(sheets)))
         if sws is att:
             continue
         title = sws.title

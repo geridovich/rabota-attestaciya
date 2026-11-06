@@ -224,7 +224,7 @@ def make_good(path, head_rows, percent, rng=_rng, out_dir=None):
     return out, written, impossible
 
 
-def run(path, percent, out_path=None, rng=_rng, out_dir=None):
+def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
     """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика).
 
     Каналы без единого измерения заполняются целиком (с долей погрешности),
@@ -232,8 +232,12 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None):
     В {строка: значение} для таких строк - {столбец: значение}.
     """
     import openpyxl
+    tick = progress or (lambda f: None)  # доля сделанного 0..1 - для процентов в окне
+    tick(0.02)
     wb = openpyxl.load_workbook(path)
+    tick(0.25)
     vals = openpyxl.load_workbook(path, data_only=True)
+    tick(0.45)
     ws_vals, lay = layout.pick_sheet(vals)
     ws = wb[ws_vals.title]
     all_channels = read_channels(ws_vals, lay)
@@ -247,7 +251,9 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None):
     chosen = set(id(c) for c in rng.sample(eligible, k))
     written = {}
     nonzero = 0
-    for c in channels:
+    for ci, c in enumerate(channels):
+        if ci % 20 == 0:
+            tick(0.45 + 0.3 * ci / max(1, len(channels)))
         values = generate_channel(c, id(c) in chosen, rng)
         if point_error(c, values) > 0:
             nonzero += 1
@@ -274,6 +280,8 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None):
         out_path, n = base + " (magic).xlsx", 2
         while os.path.exists(out_path):
             out_path, n = "%s (magic %d).xlsx" % (base, n), n + 1
+    tick(0.8)
     wb.save(out_path)
+    tick(1.0)
     return out_path, written, {"sheet": ws.title, "channels": len(channels), "nonzero": nonzero,
                                "partial_channels": partial_channels, "partial_cells": partial_cells}
