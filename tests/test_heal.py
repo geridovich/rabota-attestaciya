@@ -75,6 +75,47 @@ class HealTest(unittest.TestCase):
             self.assertEqual(p.column_dimensions["B"].width, 17)
             self.assertTrue(any(k.startswith("Остальные листы перенесены") for k in fixes))
 
+    def test_input_signal(self):
+        """H: температуры без 4-20 мА - действительные значения, пустой H у остальных - 4..20."""
+        import openpyxl
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "inp.xlsx")
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            for col, text in heal.HEAD1.items():
+                ws[col + "1"] = text
+            for col, text in heal.HEAD2.items():
+                ws[col + "2"] = text
+            chans = (  # KKS, низ, верх, ед., ПИП, модуль, H
+                ("T1CT001", 0, 600, "°C", "Метран-ТХА", "LIG16", (4, 8, 12, 16, 20)),
+                ("T2GW001", -40, 80, "°C", "Метран-ТСМ-243", "AIG16", None),
+                ("T3CT001", -50, 150, "°С", None, "МФК 1500", None),
+                ("P1CP001", 0, 1.6, "МПа", "Метран 100ДИ", "AIG16", None),
+                ("P2CP001", 0, 1.6, "МПа", "Метран 100ДИ", "AIG16", (0, 0.4, 0.8, 1.2, 1.6)),
+            )
+            r = 4
+            for n, (kks, lo, hi, u, pip, mod, h) in enumerate(chans, start=1):
+                ws["A%d" % r], ws["B%d" % r], ws["C%d" % r] = n, kks, "Канал %d" % n
+                ws["D%d" % r], ws["E%d" % r], ws["F%d" % r] = lo, hi, u
+                ws["T%d" % r], ws["V%d" % r], ws["P%d" % r], ws["W%d" % r] = pip, mod, 0.5, 0.15
+                for k, pct in enumerate((0, 25, 50, 75, 100)):
+                    ws["G%d" % (r + k)] = pct
+                    if h:
+                        ws["H%d" % (r + k)] = h[k]
+                r += 5
+            wb.save(src)
+            out, fixes, n = heal.heal(src)
+            self.assertEqual(n, 5)
+            res = openpyxl.load_workbook(out).active
+            got = [[res["H%d" % (4 + 5 * i + k)].value for k in range(5)] for i in range(5)]
+            self.assertEqual(got[0], [0, 150, 300, 450, 600])
+            self.assertEqual(got[1], [4, 8, 12, 16, 20])
+            self.assertEqual(got[2], [-50, 0, 50, 100, 150])
+            self.assertEqual(got[3], [4, 8, 12, 16, 20])
+            self.assertEqual(got[4], [0, 0.4, 0.8, 1.2, 1.6])
+            self.assertEqual(fixes["Входной сигнал температур = действительные значения"], 2)
+            self.assertEqual(fixes["Пустой входной сигнал заполнен 4…20 мА"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
