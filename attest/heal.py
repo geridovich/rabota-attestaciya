@@ -113,6 +113,37 @@ def _group(rows, fixes):
     return kept
 
 
+_REF = re.compile(r"(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(])")
+
+
+def _source_formula(src_ws, h, std_col, first):
+    """Формула ячейки исходного листа, переписанная на столбцы и строку копии.
+
+    Файлы, сохранённые не Excel (например, заполненные скриптом), хранят формулы без
+    посчитанных значений: «=P4» читается как пусто, и столбец терялся бы. Ссылки
+    переводятся по таблице столбцов исходник -> копия; если ссылка ведёт в столбец,
+    которого в копии нет, формула не переносится."""
+    src = h.get("_src") or {}
+    sc, sr = src.get(std_col), h.get("_row")
+    if not sc or not sr:
+        return None
+    f = src_ws["%s%d" % (sc, sr)].value
+    if not isinstance(f, str) or not f.startswith("="):
+        return None
+    back = {v: k for k, v in src.items()}
+    ok = [True]
+
+    def sub(m):
+        col = back.get(m.group(2))
+        if col is None:
+            ok[0] = False
+            return m.group(0)
+        row = int(m.group(4))
+        return "%s%s%s%d" % (m.group(1), col, m.group(3), row if m.group(3) else row - sr + first)
+    out = _REF.sub(sub, f)
+    return out if ok[0] else None
+
+
 def heal(path, out_path=None, out_dir=None, progress=None):
     """Вылечить файл. Возвращает (путь копии, {что исправлено: сколько}, каналов)."""
     import openpyxl
@@ -192,6 +223,10 @@ def heal(path, out_path=None, out_dir=None, progress=None):
             v = h.get(c[k])
             ws["%s%d" % (col, first)] = to_text(v) if k in ("pip", "module") else \
                 _num(v, fixes, "Числа, записанные текстом, исправлены")
+            if v is None and old_ws is not None:  # формула без сохранённого значения (=P4)
+                f = _source_formula(old_ws, h, c[k], first)
+                if f:
+                    ws["%s%d" % (col, first)] = f
         allowed = _num(h.get(c["allowed"]), fixes, "Числа, записанные текстом, исправлены")
         if allowed is None:
             allowed = ws["X%d" % first].value
