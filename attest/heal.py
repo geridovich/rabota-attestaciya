@@ -11,7 +11,9 @@
   * нет действительного значения (I) или формул N, O, Q, S - формулы ставятся заново;
   * нет допустимой погрешности (R) - формула 1,1·√(P² + W²);
   * остальные листы файла (например «Перечень ИК») переносятся в копию как есть;
-  * измерение заполнено не во всех столбцах J..M - одинаковое значение дописывается.
+  * измерение заполнено не во всех столбцах J..M - одинаковое значение дописывается;
+  * входной сигнал (H): у температур без тока 4-20 мА (термосопротивления и термопары)
+    - действительные значения точек, у остальных пустой H - 4, 8, 12, 16, 20 мА.
 Исходный файл не меняется, результат - копия «… (вылечено).xlsx».
 """
 import copy
@@ -111,6 +113,36 @@ def _group(rows, fixes):
     if auto_num:
         fixes["Каналы без «№» пронумерованы"] = auto_num
     return kept
+
+
+_CURRENT_PIP = re.compile(r"4\s*[-–…]+\s*20|ИПТВ|-\s*243", re.I)
+
+
+def direct_temperature(unit, pip, module):
+    """Температура, измеряемая напрямую (термосопротивление, термопара), а не током 4-20 мА.
+
+    Модуль LIG - вход сопротивления/термопары. Модуль AIG - токовый вход. ПИП с
+    встроенным выходом 4-20 мА (Метран-ТСМ-243, ИПТВ-206) - тоже токовый канал."""
+    module = (module or "").upper()
+    if "LIG" in module:
+        return True
+    u = (unit or "").replace("˚", "°").strip().upper()
+    if not (u.endswith("°С") or u.endswith("°C")):
+        return False
+    return "AIG" not in module and not _CURRENT_PIP.search(pip or "")
+
+
+def _input_signal(low, high, pct, direct):
+    """Входной сигнал точки: действительное значение для температур, иначе ток 4-20 мА."""
+    if pct is None:
+        return None
+    if direct:
+        if low is None or high is None:
+            return None
+        v = round(low + (high - low) * pct / 100.0, 6)
+    else:
+        v = round(4 + 16 * pct / 100.0, 6)
+    return int(v) if v == int(v) else v
 
 
 _REF = re.compile(r"(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(])")
@@ -238,12 +270,24 @@ def heal(path, out_path=None, out_dir=None, progress=None):
         notes = [to_text(h.get(c["notes"]))] + ch["notes"]
         ws["Y%d" % first] = "; ".join(n for n in notes if n) or None
 
+        direct = direct_temperature(ws["F%d" % first].value, ws["T%d" % first].value,
+                                    ws["V%d" % first].value)
+        low, high = ws["D%d" % first].value, ws["E%d" % first].value
+        low = low if isinstance(low, (int, float)) else None
+        high = high if isinstance(high, (int, float)) else None
+        input_fix = None
         for i, p in enumerate(pts):
             rr = first + i
             row_map[rr] = p.get("_row") or h.get("_row")
             pct = _num(p.get(c["pct"]), fixes, "Числа, записанные текстом, исправлены")
             ws["G%d" % rr] = pct
-            ws["H%d" % rr] = _num(p.get(c["input"]), fixes, "Числа, записанные текстом, исправлены")
+            inp = _num(p.get(c["input"]), fixes, "Числа, записанные текстом, исправлены")
+            want = _input_signal(low, high, pct, direct)
+            if want is not None and (direct and inp != want or inp is None):
+                inp = want
+                input_fix = "Входной сигнал температур = действительные значения" if direct \
+                    else "Пустой входной сигнал заполнен 4…20 мА"
+            ws["H%d" % rr] = inp
             if pct is not None:
                 ws["I%d" % rr] = "=ROUND((E{0}-D{0})*{1}%+D{0},10)".format(first, _fmt(pct))
             else:
@@ -259,6 +303,8 @@ def heal(path, out_path=None, out_dir=None, progress=None):
                 ws["%s%d" % (col, rr)] = v
             # ROUND: иначе Excel показывает шум двоичных дробей (0,6*75% = 0,44999…) как 9,25E-15
             ws["N%d" % rr] = "=ROUND(ABS(((AVERAGE(J{0}:M{0})-I{0})/(E{1}-D{1}))*100),9)".format(rr, first)
+        if input_fix:
+            fixes[input_fix] = fixes.get(input_fix, 0) + 1
         ws["O%d" % first] = "=MAXA(N%d:N%d)" % (first, last)
         ws["Q%d" % first] = "=SQRT(O{0}*O{0}+P{0}*P{0})".format(first)
         ws["S%d" % first] = '=IF(Q{0}>R{0},"Не годен","Годен")'.format(first)
