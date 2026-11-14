@@ -13,6 +13,7 @@ from docx import Document
 
 from .calcd import fmt
 from .data import expand
+from .heal import direct_temperature
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
@@ -260,17 +261,23 @@ THERMOCOUPLE_RE = re.compile(r"ТХА|ТХК|ТПП|ТПР|ТП-|ТП\s|КТХА
 
 
 def is_temperature(ch):
-    u = ch.unit.replace("˚", "°").upper()
-    return u.endswith("С") or u.endswith("C")
+    """Единица - градусы («°С», «°C», «С»). «мм/с» и «м/с» - не температура."""
+    u = (ch.unit or "").replace("˚", "°").replace(" ", "").upper()
+    return u.endswith("°С") or u.endswith("°C") or u in ("С", "C")
 
 
 def signal_kind(ch):
     """Вид входного воздействия для градуировочной таблицы.
 
-    Температура: термосопротивление - «Ом», термопара - None (в образце
-    заказчика для термопар таблиц нет). Остальное - токовый сигнал «мА».
+    Температура, измеряемая напрямую (модуль LIG, без выхода 4-20 мА у ПИП):
+    термосопротивление - «Ом», термопара - None (в образце заказчика для
+    термопар таблиц нет). Остальное, в т.ч. вибрация «мм/с» и температура
+    через AIG / Метран-ТСМ-243, - токовый сигнал «мА».
     """
-    if is_temperature(ch):
+    unit = (ch.unit or "").strip()
+    # модуль LIG - вход термосопротивления/термопары: температура, даже если единицу не заполнили
+    temp = is_temperature(ch) or (unit in ("", "-") and "LIG" in (ch.module or "").upper())
+    if temp and direct_temperature("°C", ch.pip, ch.module):
         return None if THERMOCOUPLE_RE.search(ch.pip or "") else "Ом"
     return "мА"
 
@@ -283,9 +290,10 @@ PLATINUM = {"П": (3.9690e-3, -5.841e-7, -4.330e-12), "Pt": (3.9083e-3, -5.775e-
 def rtd_type(pip):
     s = (pip or "").replace(" ", "")
     m = re.search(r"(50|100|500|1000)(М|M|П|P)", s)
-    if re.search(r"Pt\s*(100|500|1000)", pip or "", re.I):
-        r0 = float(re.search(r"Pt\s*(\d+)", pip, re.I).group(1))
-        return r0, "Pt"
+    # «Pt100» бывает набрано кириллицей: «РТ100» (ОВЕН ДТС...-РТ100)
+    pt = re.search(r"[PР][tТт]\s*(100|500|1000)", pip or "", re.I)
+    if pt:
+        return float(pt.group(1)), "Pt"
     if m:
         return float(m.group(1)), "П" if m.group(2) in "ПP" else "М"
     if re.search(r"ТСП", s):
@@ -343,16 +351,29 @@ def perechen_fields(ch):
     }
 
 
+def rtd_name(pip):
+    r0, kind = rtd_type(pip)
+    return ("Pt%d" if kind == "Pt" else "%d" + kind) % r0
+
+
 def _calibration_table(proto_tbl, kind, chans):
     tbl = copy.deepcopy(proto_tbl)
     first = _rows_with(tbl, "г.")
     nxt = _rows_with(tbl, "г2.")
     anchor = first[0]
+    # один диапазон у разных НСХ (50М и Pt100) - подписываем НСХ, иначе строки не отличить
+    nsh = {}
+    if kind == "Ом":
+        for ch in chans:
+            nsh.setdefault((rng_text(ch), ch.unit), set()).add(rtd_name(ch.pip))
     for ch in chans:
+        rng = rng_text(ch)
+        if len(nsh.get((rng, ch.unit), ())) > 1:
+            rng = "%s (%s)" % (rng, rtd_name(ch.pip))
         for i, p in enumerate(cal_points(ch)):
             src = first[0] if i == 0 else nxt[0]
             new = copy.deepcopy(src)
-            vals = {"г.диап": rng_text(ch), "г.ед": ch.unit}
+            vals = {"г.диап": rng, "г.ед": ch.unit}
             pre = "г." if i == 0 else "г2."
             vals.update({pre + "%": num(p.pct), pre + "знач": num(p.xd),
                          pre + "вх": num(calibration_input(ch, kind, p))})

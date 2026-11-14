@@ -100,6 +100,24 @@ class PasteTest(unittest.TestCase):
         self.assertEqual([c.text for c in cal.rows[2].cells][-1], "39,35")
         self.assertNotIn("{{", "".join(c.text for t in doc.tables for r in t.rows for c in r.cells))
 
+    def test_signal_kind_vibration_and_current_temperature(self):
+        """Вибрация «мм/с» и температура через AIG/токовый ПИП - не в таблицу «Ом»."""
+        from attest import docgen
+
+        def ch(unit, pip="", module=""):
+            return data.Channel("1", "K", "N", 0, 100, unit, pip=pip, module=module)
+        self.assertEqual(docgen.signal_kind(ch("мм/с", "ВКТ-10", "AIG16")), "мА")
+        self.assertEqual(docgen.signal_kind(ch("мм/с", "Metrix ST5484E", "МФК 1500")), "мА")
+        self.assertEqual(docgen.signal_kind(ch("м/с")), "мА")
+        self.assertEqual(docgen.signal_kind(ch("°C", "Метран-ТСМ-243", "AIG16")), "мА")
+        self.assertEqual(docgen.signal_kind(ch("°C", "ОВЕН ДТС045Д-РТ100.0,25.400.МГ.И", "AIG16")), "мА")
+        self.assertEqual(docgen.signal_kind(ch("°C", "ТСМ-50", "LIG16")), "Ом")
+        self.assertEqual(docgen.signal_kind(ch("-", "Метран-ТСМ-203", "LIG16")), "Ом")
+        self.assertEqual(docgen.signal_kind(ch("°С", "", "МФК 1500")), "Ом")
+        self.assertIsNone(docgen.signal_kind(ch("°C", "Метран-ТХА-201", "LIG16")))
+        # «РТ100» кириллицей - платина Pt100, а не медь 50М по умолчанию
+        self.assertEqual(docgen.rtd_type("ДТС034ЭНЖ-РТ100.В4.26/2.М8Х1,25"), (100.0, "Pt"))
+
     def test_mixed_layouts_in_one_paste(self):
         chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW + PASTE_NEG))
         self.assertEqual([p.xd for p in chs[2].points], [-50, 12.5, 75, 137.5, 200])
