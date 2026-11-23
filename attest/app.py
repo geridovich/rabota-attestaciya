@@ -68,50 +68,14 @@ def readonly_text(root, text):
 
 
 def enable_entry_paste(entry):
-    """Обеспечивает стандартные команды буфера обмена в полях документов."""
-    def paste(_event=None):
-        try:
-            value = entry.clipboard_get()
-        except tk.TclError:
-            return "break"
-        try:
-            start, end = entry.index("sel.first"), entry.index("sel.last")
-        except tk.TclError:
-            start = end = entry.index("insert")
-        entry.delete(start, end)
-        entry.insert(start, value)
-        return "break"
-
-    def copy(_event=None):
-        try:
-            value = entry.selection_get()
-        except tk.TclError:
-            return "break"
-        entry.clipboard_clear()
-        entry.clipboard_append(value)
-        return "break"
-
-    def cut(_event=None):
-        try:
-            start, end = entry.index("sel.first"), entry.index("sel.last")
-        except tk.TclError:
-            return "break"
-        copy()
-        entry.delete(start, end)
-        return "break"
-
-    for sequence in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
-        entry.bind(sequence, paste, add="+")
-    for sequence in ("<Control-c>", "<Control-C>", "<Control-Insert>"):
-        entry.bind(sequence, copy, add="+")
-    for sequence in ("<Control-x>", "<Control-X>"):
-        entry.bind(sequence, cut, add="+")
-    entry.bind("<Control-a>", lambda _e: (entry.selection_range(0, "end"), "break")[1], add="+")
+    """Оставляет штатные Ctrl+C/V/X Tk и добавляет их в контекстное меню."""
+    def virtual(event_name):
+        return lambda: entry.event_generate(event_name)
 
     menu = tk.Menu(entry, tearoff=0)
-    menu.add_command(label="Вырезать", command=cut)
-    menu.add_command(label="Копировать", command=copy)
-    menu.add_command(label="Вставить", command=paste)
+    menu.add_command(label="Вырезать", command=virtual("<<Cut>>"))
+    menu.add_command(label="Копировать", command=virtual("<<Copy>>"))
+    menu.add_command(label="Вставить", command=virtual("<<Paste>>"))
     menu.add_separator()
     menu.add_command(label="Выделить всё", command=lambda: entry.selection_range(0, "end"))
 
