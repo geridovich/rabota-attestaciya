@@ -10,6 +10,7 @@ import re
 import sys
 
 from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from .calcd import fmt
 from .data import expand
@@ -386,6 +387,15 @@ def _calibration_table(proto_tbl, kind, chans):
 
 def build_perechen(channels, title, template=None):
     doc = Document(template or template_path("perechen.docx"))
+    # В шаблоне Word номер страницы хранится отдельным блоком в колонтитуле.
+    for rel in doc.part.rels.values():
+        if rel.reltype == RT.FOOTER:
+            footer = rel.target_part.element
+            for block in footer.xpath(
+                './/w:sdt[w:sdtPr/w:docPartObj/w:docPartGallery'
+                '[@w:val="Page Numbers (Bottom of Page)"]]'
+            ):
+                block.getparent().remove(block)
     body = doc.element.body
     fill(body, {"ПЕРЕЧЕНЬ": title})
     tables = list(body.iter(W + "tbl"))
