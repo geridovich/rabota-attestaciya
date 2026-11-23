@@ -16,7 +16,7 @@ import os
 import random
 
 from . import layout
-from .data import is_kks, to_float
+from .data import is_kks, named_without_kks, to_float, to_text
 
 _rng = random.SystemRandom()  # каждый запуск - новый случайный набор
 
@@ -77,13 +77,13 @@ def read_channels(ws_vals, lay):
     hidden = lambda r: bool(ws_vals.row_dimensions[r].hidden) if r in ws_vals.row_dimensions else False
     channels, cur = [], None
     for r in range(4, ws_vals.max_row + 1):
-        kks = ws_vals["%s%d" % (lay["kks"], r)].value
+        kks = ws_vals["%s%d" % (lay["kks"], r)].value if "kks" in lay else None
         num = ws_vals["%s%d" % (lay["num"], r)].value if lay.get("num") else None
         has_num = num is not None and str(num).strip() != ""
         if cur is not None and not has_num and (kks is None or not str(kks).strip()):
             cur["hidden"] = cur["hidden"] and hidden(r)  # скрыт, только если скрыты все строки
-        if is_kks(kks, ws_vals["%s%d" % (lay["num"], r)].value if lay.get("num") else None,
-                  ws_vals["%s%d" % (lay["name"], r)].value if lay.get("name") else None):
+        name = ws_vals["%s%d" % (lay["name"], r)].value if "name" in lay else None
+        if is_kks(kks, num, name) or ("kks" not in lay and named_without_kks(num, name)):
             low, high = g("low", r), g("high", r)
             if "low" not in lay and lay.get("range"):  # диапазон текстом «0…1,02»
                 low, high = layout.parse_range(ws_vals["%s%d" % (lay["range"], r)].value or "")
@@ -96,7 +96,7 @@ def read_channels(ws_vals, lay):
                 allowed = g("allowed_ik", r)
             if allowed is None and p is not None:
                 allowed = 1.1 * math.sqrt(p * p + (w if w is not None else 0.15) ** 2)
-            cur = {"row": r, "kks": str(kks).strip(), "low": low or 0.0, "high": high,
+            cur = {"row": r, "kks": to_text(kks), "low": low or 0.0, "high": high,
                    "P": p, "R": allowed, "points": [], "hidden": hidden(r)}
             channels.append(cur)
         elif has_num and cur is not None and cur["row"] != r:

@@ -92,6 +92,10 @@ def is_kks(s, num=None, name=None):
     return bool(s) and (" " not in s or bool(to_text(num)) or bool(to_text(name)))
 
 
+def named_without_kks(num, name):
+    return not is_blank(num) and not is_blank(name)
+
+
 def split_clipboard(text):
     """Текст из буфера Excel -> строки ячеек.
 
@@ -343,6 +347,18 @@ def rows_from_text(text):
     lines = [[to_text(c) for c in ln] for ln in split_clipboard(text) if any(c.strip() for c in ln)]
     if not lines:
         return []
+    if lines[0][:2] in (["№", "KKS"], ["№", "Наименование параметра"]):
+        lines = lines[2:]
+        if lines and lines[0][:3] == ["1", "2", "3"]:
+            lines = lines[1:]
+    if not lines:
+        return []
+    first = next((ln for ln in lines if len(ln) >= 5 and ln[0]), [])
+    no_kks = bool(first and to_float(first[0]) is not None and first[1]
+                  and to_float(first[2]) is not None and to_float(first[3]) is not None
+                  and to_float(first[4]) is None)
+    if no_kks:
+        lines = [ln[:1] + [""] + ln[1:] for ln in lines]
     shift = 1 if _is_kks(lines[0][0]) else 0  # вставка начата с KKS, без №
     width = max(len(ln) for ln in lines) + shift
     rows = []
@@ -350,6 +366,7 @@ def rows_from_text(text):
         for n, ln in enumerate(lines, start=1):
             row = {col_letter(i + shift): c for i, c in enumerate(ln)}
             row["_row"] = n
+            row["_no_kks"] = no_kks
             rows.append(row)
         return rows
 
@@ -369,6 +386,7 @@ def rows_from_text(text):
         keys = SHORT_KEYS if has_pct else SHORT_KEYS[:-1]
         cells = [""] * shift + ln
         row = {COLUMNS[k]: cells[i] for i, k in enumerate(keys) if i < len(cells)}
+        row["_no_kks"] = no_kks
         row["_short"] = True
         row["_row"] = len(rows) + 1  # строка вставки
         if row.get(COLUMNS["kks"]) or row.get(COLUMNS["num"]):
@@ -445,6 +463,7 @@ def rows_from_xlsx(path, first_row=4, overrides=None):
                 row[std] = ov if ov is not None else raw.get(src)
         # где это в листе - для окна «Ошибки»
         row["_row"], row["_sheet"], row["_hidden"] = n, ws.title, n in hidden
+        row["_no_kks"] = "kks" not in lay
         row["_src"] = dict({COLUMNS[k]: lay[k] for k in keys if k in lay}, **dict(zip(m_std, lay["m"])))
         if "low" not in lay and lay.get("range") and raw.get(lay["range"]) is not None:
             low, high = layout.parse_range(raw[lay["range"]])
@@ -491,6 +510,9 @@ def channels_from_rows(rows):
         num = to_text(g(row, "num"))
         head = bool(kks or num)
         if head:
+            if not kks and not (row.get("_no_kks") and named_without_kks(num, g(row, "name"))):
+                cur = None
+                continue
             allowed = to_float(g(row, "allowed"))
             cur = Channel(
                 num=num, kks=kks, name=to_text(g(row, "name")),
@@ -550,7 +572,7 @@ def channels_from_rows(rows):
         cur.points.append(Point(pct, to_float(g(row, "input")), xd, measured))
     # заготовки без KKS и пустые строки-шаблоны (без названия и диапазона) не нужны;
     # скрытые в Excel каналы (все строки канала скрыты, как № 37, 39 в К-8) не учитываются
-    return [c for c in channels if c.kks and (c.name or c.high != c.low) and not c.hidden]
+    return [c for c in channels if (c.name or c.high != c.low) and not c.hidden]
 
 
 def expand(measured, qm):

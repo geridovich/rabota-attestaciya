@@ -754,7 +754,7 @@ class App(tk.Tk):
 
     def add_channels(self, chs):
         if not chs:
-            messagebox.showwarning("Нет данных", "Не найдено ни одного канала (нужны KKS и строки точек).")
+            messagebox.showwarning("Нет данных", "Не найдено ни одного канала (нужны KKS либо номер и наименование канала).")
             return
         self.channels += chs
         # по умолчанию - протоколы на все вставленные каналы одним документом

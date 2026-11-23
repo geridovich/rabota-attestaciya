@@ -20,7 +20,7 @@ import copy
 import os
 import re
 
-from .data import COLUMNS, is_kks, rows_from_xlsx, to_float, to_text
+from .data import COLUMNS, is_kks, named_without_kks, rows_from_xlsx, to_float, to_text
 
 HEAD1 = {
     "A": "№", "B": "KKS", "C": "Наименование параметра", "D": "Диапазон измерения ИК",
@@ -103,7 +103,8 @@ def _group(rows, fixes):
             continue
         name = to_text(h.get(c["name"]))
         low, high = to_float(h.get(c["low"])), to_float(h.get(c["high"]))
-        if not to_text(h.get(c["kks"])) or (not name and (low is None or low == high)):
+        named = h.get("_no_kks") and named_without_kks(h.get(c["num"]), name)
+        if not (to_text(h.get(c["kks"])) or named) or (not name and (low is None or low == high)):
             fixes["Пустые строки-заготовки удалены"] = fixes.get("Пустые строки-заготовки удалены", 0) + 1
             continue
         kept.append(ch)
@@ -335,6 +336,9 @@ def heal(path, out_path=None, out_dir=None, progress=None):
         if others:
             fixes["Остальные листы перенесены без изменений (%s)" % ", ".join(others)] = len(others)
     tick(0.9)
+    if rows and rows[0].get("_no_kks"):
+        ws["B1"].value = None
+        ws.column_dimensions["B"].hidden = True
     wb.calculation.fullCalcOnLoad = True
     if out_path is None:
         src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path

@@ -75,7 +75,7 @@ def _index(letter):
 
 
 def is_attestation(lay):
-    return "kks" in lay and "m" in lay
+    return "m" in lay and ("kks" in lay or {"num", "name", "pct"} <= lay.keys())
 
 
 def parse_range(text):
@@ -103,4 +103,4 @@ def pick_sheet(wb, exclude=None):
             best = (ws, lay)
     if best:
         return best
-    raise ValueError("В файле нет листа с «KKS» и «Измеренное значение выходного сигнала» в шапке")
+    raise ValueError("Нужен лист с измерениями и KKS либо с номером, наименованием и контрольными точками")
