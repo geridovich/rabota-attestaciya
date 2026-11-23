@@ -68,15 +68,28 @@ def readonly_text(root, text):
 
 
 def enable_entry_paste(entry):
-    """Обеспечивает вставку текста из буфера в поля документов."""
-    def paste(_event=None):
-        entry.event_generate("<<Paste>>")
-        return "break"
+    """Обеспечивает стандартные команды буфера обмена в полях документов."""
+    def edit_event(event_name):
+        def handler(_event=None):
+            entry.event_generate(event_name)
+            return "break"
+        return handler
+
+    paste = edit_event("<<Paste>>")
+    copy = edit_event("<<Copy>>")
+    cut = edit_event("<<Cut>>")
 
     for sequence in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
         entry.bind(sequence, paste, add="+")
+    for sequence in ("<Control-c>", "<Control-C>", "<Control-Insert>"):
+        entry.bind(sequence, copy, add="+")
+    for sequence in ("<Control-x>", "<Control-X>"):
+        entry.bind(sequence, cut, add="+")
+    entry.bind("<Control-a>", lambda _e: (entry.selection_range(0, "end"), "break")[1], add="+")
 
     menu = tk.Menu(entry, tearoff=0)
+    menu.add_command(label="Вырезать", command=cut)
+    menu.add_command(label="Копировать", command=copy)
     menu.add_command(label="Вставить", command=paste)
     menu.add_separator()
     menu.add_command(label="Выделить всё", command=lambda: entry.selection_range(0, "end"))
