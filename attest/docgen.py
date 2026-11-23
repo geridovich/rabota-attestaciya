@@ -169,15 +169,15 @@ def point_fields(p):
     return vals
 
 
-def _number_from_one(sect):
-    """Нумерация страниц с 1 (в образце заказчика стояло «начать с 29»)."""
+def _number_protocol_pages(sect):
+    """Начать нумерацию страниц протоколов с 22."""
     if sect is None:
         return
     pg = sect.find(W + "pgNumType")
     if pg is None:
         pg = sect.makeelement(W + "pgNumType", {})
         sect.append(pg)
-    pg.set(W + "start", "1")
+    pg.set(W + "start", "22")
 
 
 def _protocol_elements(proto, ch, n, ranges, station, executor):
@@ -195,7 +195,7 @@ def _protocol_elements(proto, ch, n, ranges, station, executor):
 def build_protocols(channels, ranges, station, executor, template=None):
     doc = Document(template or template_path("protocol.docx"))
     body, sect, proto = _body_parts(doc)
-    _number_from_one(sect)
+    _number_protocol_pages(sect)
     for n, ch in enumerate(channels):
         for el in _protocol_elements(proto, ch, n, ranges, station, executor):
             _append(body, sect, el)
@@ -215,7 +215,7 @@ def write_protocols(path, channels, ranges, station, executor, template=None, pr
 
     doc = Document(template or template_path("protocol.docx"))
     body, sect, proto = _body_parts(doc)
-    _number_from_one(sect)
+    _number_protocol_pages(sect)
     if channels:  # колонтитулы общие - метки из первого канала
         vals = protocol_fields(channels[0], ranges, station, executor)
         for part in _header_footer_parts(doc):

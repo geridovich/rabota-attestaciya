@@ -1,6 +1,7 @@
 """Разбор вставки из Excel."""
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -79,6 +80,23 @@ class PasteTest(unittest.TestCase):
         # 5 точек x (Меньшее + Большее) + 3 строки шапки
         self.assertEqual(len(doc.tables[2].rows), 13)
         self.assertEqual(doc.tables[2].rows[5].cells[4].text, "0,26")
+
+    def test_protocol_page_numbering_starts_at_22(self):
+        from docx import Document
+        from docx.oxml.ns import qn
+        from attest import docgen
+
+        chs = data.channels_from_rows(data.rows_from_text(PASTE_YELLOW))
+        args = ([], "САУГ КА-4 ТЭЦ-17", docgen.EXECUTORS[3])
+        with tempfile.TemporaryDirectory() as folder:
+            saved_path = docgen.save_protocols(chs, folder, *args)
+            for document in (docgen.build_protocols(chs, *args), Document(saved_path)):
+                self.assertEqual(len(document.sections), 1)
+                section = document.sections[0]._sectPr
+                page_numbers = section.find(qn("w:pgNumType"))
+                self.assertIsNotNone(page_numbers)
+                self.assertEqual(page_numbers.get(qn("w:start")), "22")
+                self.assertEqual(document.paragraphs[0].text, "Протокол № 1 от __.__.____")
 
     def test_perechen_and_calibration_tables(self):
         from attest import docgen
