@@ -68,14 +68,53 @@ def readonly_text(root, text):
 
 
 def enable_entry_paste(entry):
-    """Оставляет штатные Ctrl+C/V/X Tk и добавляет их в контекстное меню."""
-    def virtual(event_name):
-        return lambda: entry.event_generate(event_name)
+    """Обрабатывает клавиши буфера по коду клавиши, независимо от раскладки."""
+    def copy_selection():
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            return
+        entry.clipboard_clear()
+        entry.clipboard_append(entry.get()[start:end])
+
+    def paste_clipboard():
+        try:
+            value = entry.clipboard_get()
+        except tk.TclError:
+            return
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            start = end = entry.index("insert")
+        entry.delete(start, end)
+        entry.insert(start, value)
+
+    def cut_selection():
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            return
+        copy_selection()
+        entry.delete(start, end)
+
+    def control_key(event):
+        if not event.state & 0x4:
+            return
+        actions = {65: lambda: entry.selection_range(0, "end"),
+                   67: copy_selection, 86: paste_clipboard, 88: cut_selection}
+        action = actions.get(event.keycode)
+        if action is not None:
+            action()
+            return "break"
+
+    entry.bind("<Control-KeyPress>", control_key, add="+")
+    entry.bind("<Control-Insert>", lambda _e: (copy_selection(), "break")[1], add="+")
+    entry.bind("<Shift-Insert>", lambda _e: (paste_clipboard(), "break")[1], add="+")
 
     menu = tk.Menu(entry, tearoff=0)
-    menu.add_command(label="Вырезать", command=virtual("<<Cut>>"))
-    menu.add_command(label="Копировать", command=virtual("<<Copy>>"))
-    menu.add_command(label="Вставить", command=virtual("<<Paste>>"))
+    menu.add_command(label="Вырезать", command=cut_selection)
+    menu.add_command(label="Копировать", command=copy_selection)
+    menu.add_command(label="Вставить", command=paste_clipboard)
     menu.add_separator()
     menu.add_command(label="Выделить всё", command=lambda: entry.selection_range(0, "end"))
 
