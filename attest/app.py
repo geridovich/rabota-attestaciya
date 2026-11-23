@@ -67,6 +67,32 @@ def readonly_text(root, text):
     text.configure(cursor="xterm")
 
 
+def enable_entry_paste(entry):
+    """Обеспечивает вставку текста из буфера в поля документов."""
+    def paste(_event=None):
+        entry.event_generate("<<Paste>>")
+        return "break"
+
+    for sequence in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
+        entry.bind(sequence, paste, add="+")
+
+    menu = tk.Menu(entry, tearoff=0)
+    menu.add_command(label="Вставить", command=paste)
+    menu.add_separator()
+    menu.add_command(label="Выделить всё", command=lambda: entry.selection_range(0, "end"))
+
+    def show_menu(event):
+        entry.focus_set()
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
+    entry.bind("<Button-3>", show_menu, add="+")
+    entry.bind("<Control-Button-1>", show_menu, add="+")
+
+
 def load_settings():
     s = dict(DEFAULTS)
     try:
@@ -230,9 +256,13 @@ class App(tk.Tk):
         self.executor = ttk.Combobox(doc, state="readonly", width=34,
                                      values=["%d. %s %s" % (i + 1, d, f) for i, (d, f) in enumerate(docgen.EXECUTORS)])
         self.executor.current(min(max(0, int(s["executor"])), len(docgen.EXECUTORS) - 1))
+        station_entry = ttk.Entry(doc, textvariable=self.station, width=36)
+        perechen_entry = ttk.Entry(doc, textvariable=self.perechen, width=36)
+        enable_entry_paste(station_entry)
+        enable_entry_paste(perechen_entry)
         for r, (label, widget) in enumerate((
-                ("Аттестация ИК:", ttk.Entry(doc, textvariable=self.station, width=36)),
-                ("Перечень ИК:", ttk.Entry(doc, textvariable=self.perechen, width=36)),
+                ("Аттестация ИК:", station_entry),
+                ("Перечень ИК:", perechen_entry),
                 ("Исполнитель:", self.executor))):
             ttk.Label(doc, text=label).grid(row=r, column=0, sticky="w", padx=(0, 6), pady=1)
             widget.grid(row=r, column=1, sticky="we", pady=1)
