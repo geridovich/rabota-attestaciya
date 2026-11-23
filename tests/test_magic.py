@@ -4,6 +4,8 @@ import random
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from attest import data, magic  # noqa: E402
@@ -36,6 +38,28 @@ def make_sheet(path, channels):
 
 
 class MagicTest(unittest.TestCase):
+    def test_confirm_refill_of_complete_sheet(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src.xlsx")
+            make_sheet(src, [(0, 100, 0.2, 0.321)] * 4)
+            complete, _, _ = magic.run(src, 0)
+            original = Path(complete).read_bytes()
+            before = sorted(os.listdir(d))
+            confirm = Mock(return_value=False)
+            self.assertIsNone(magic.run(complete, 50, confirm_refill=confirm))
+            confirm.assert_called_once_with("Sheet")
+            self.assertEqual(sorted(os.listdir(d)), before)
+            confirm.reset_mock()
+            confirm.return_value = True
+            out, written, stats = magic.run(complete, 50, confirm_refill=confirm)
+            confirm.assert_called_once_with("Sheet")
+            self.assertEqual(len(written), 20)
+            self.assertEqual((stats["channels"], stats["nonzero"]), (4, 2))
+            self.assertEqual(os.path.basename(out), "src (magic - модель).xlsx")
+            new_copy, _, _ = magic.run(out, 50, confirm_refill=confirm)
+            self.assertEqual(os.path.basename(new_copy), "src (magic - модель 2).xlsx")
+            self.assertEqual(Path(complete).read_bytes(), original)
+
     def test_all_good_and_share(self):
         rng = random.Random(1)
         chans = [(rng.choice((0, -50)), rng.choice((1, 6, 160, 600, 1600, 5000)), 0.2, 0.321)
@@ -103,7 +127,7 @@ class MagicTest(unittest.TestCase):
             for r in range(4, 9):
                 wb.active["J%d" % r] = 1.5
             wb.save(src)
-            out, written, st = magic.run(src, 60)
+            out, written, st = magic.run(src, 60, confirm_refill=self.fail)
             self.assertEqual(st["channels"], 2)
             # в заполненном канале введённое (J) не трогается, пустые K..M - тем же значением
             ws = openpyxl.load_workbook(out).active

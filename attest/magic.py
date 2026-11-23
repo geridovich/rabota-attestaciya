@@ -14,6 +14,7 @@
 import math
 import os
 import random
+import re
 
 from . import layout
 from .data import is_kks, named_without_kks, to_float, to_text
@@ -231,6 +232,8 @@ def _out_path(path, out_dir, suffix):
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     base = os.path.splitext(src)[0]
+    if suffix == "magic - модель":
+        base = re.sub(r" \(magic(?: - модель)?(?: \d+)?\)$", "", base)
     out, n = "%s (%s).xlsx" % (base, suffix), 2
     while os.path.exists(out):
         out, n = "%s (%s %d).xlsx" % (base, suffix, n), n + 1
@@ -268,12 +271,14 @@ def make_good(path, head_rows, percent, rng=_rng, out_dir=None):
     return out, written, impossible
 
 
-def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
+def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None, confirm_refill=None):
     """Заполнить пустые J..M. Возвращает (путь нового файла, {строка: значение}, статистика).
 
     Каналы без единого измерения заполняются целиком (с долей погрешности),
     в частично заполненных дописываются только пустые ячейки (fill_partial).
     В {строка: значение} для таких строк - {столбец: значение}.
+    На полностью заполненном листе confirm_refill решает, создать ли новую
+    модельную копию. При отказе функция возвращает None до записи файла.
     """
     import openpyxl
     tick = progress or (lambda f: None)  # доля сделанного 0..1 - для процентов в окне
@@ -290,6 +295,18 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
                 if c["points"] and all(p["empty"] for p in c["points"])
                 and all(p["xd"] is not None for p in c["points"])]
     partial = [c for c in all_channels if c["points"] and not all(p["empty"] for p in c["points"])]
+    refill = False
+    if confirm_refill is not None and all_channels and all(
+        c["points"] and all(not p["blank"] and len(p["nums"]) == len(lay["m"])
+                            and p["xd"] is not None for p in c["points"])
+        for c in all_channels
+    ):
+        if not confirm_refill(ws.title):
+            wb.close()
+            return None
+        refill = True
+        channels = all_channels
+        partial = []
     # погрешность можно дать только каналам с диапазоном и запасом до допуска
     eligible = [c for c in channels if c["high"] != c["low"] and max_error(c) > 0]
     k = min(len(eligible), int(round(len(channels) * percent / 100.0)))
@@ -316,15 +333,12 @@ def run(path, percent, out_path=None, rng=_rng, out_dir=None, progress=None):
                 ws["%s%d" % (col, row)] = v
                 partial_cells += 1
             written[row] = cols
+    if not written and confirm_refill is not None:
+        wb.close()
+        return None, {}, {"sheet": ws.title, "channels": 0, "partial_cells": 0}
     wb.calculation.fullCalcOnLoad = True  # Excel пересчитает формулы N, O, Q, S при открытии
     if out_path is None:
-        src = os.path.join(out_dir, os.path.basename(path)) if out_dir else path
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-        base = os.path.splitext(src)[0]
-        out_path, n = base + " (magic).xlsx", 2
-        while os.path.exists(out_path):
-            out_path, n = "%s (magic %d).xlsx" % (base, n), n + 1
+        out_path = _out_path(path, out_dir, "magic - модель" if refill else "magic")
     tick(0.8)
     wb.save(out_path)
     tick(1.0)

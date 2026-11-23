@@ -449,9 +449,17 @@ class App(tk.Tk):
         out_dir = self.sub_dir(MAGIC_DIR)  # в потоке Tk трогать нельзя
         prog = self._progress("Magic: заполняю измерения…")
 
+        def confirm_refill(sheet):
+            ready = threading.Event()
+            answer = {}
+            box["confirm"] = (sheet, answer, ready)
+            ready.wait()
+            return answer.get("yes", False)
+
         def work():
             try:
-                box["result"] = magic.run(path, pct, out_dir=out_dir, progress=prog)
+                box["result"] = magic.run(path, pct, out_dir=out_dir, progress=prog,
+                                          confirm_refill=confirm_refill)
             except Exception as e:  # noqa: BLE001
                 box["error"] = e
 
@@ -459,7 +467,17 @@ class App(tk.Tk):
         self._magic_wait(box, path)
 
     def _magic_wait(self, box, path):
-        if not box:
+        request = box.pop("confirm", None)
+        if request is not None:
+            sheet, answer, ready = request
+            try:
+                answer["yes"] = self.xlsx_path == path and messagebox.askyesno(
+                    "Magic", "На листе «%s» все измерения заполнены.\n\n"
+                    "Заполнить всё заново модельными значениями в отдельной копии Excel?" % sheet,
+                    parent=self, default=messagebox.NO)
+            finally:
+                ready.set()
+        if "result" not in box and "error" not in box:
             self.after(200, self._magic_wait, box, path)
             return
         self._progress_done()
@@ -471,14 +489,18 @@ class App(tk.Tk):
             self.refresh()
             messagebox.showerror("Magic", "Не получилось: %s" % box["error"])
             return
+        if box["result"] is None:
+            self.refresh()
+            return
         out, written, st = box["result"]
         if not st["channels"] and not st.get("partial_cells"):
             self.refresh()
-            messagebox.showinfo("Magic", "Пустых «Измеренных значений» на листе «%s» нет — всё уже заполнено."
+            messagebox.showinfo("Magic", "На листе «%s» нет точек, которые Magic может заполнить."
                                 % st["sheet"])
             return
         # каналы в программе - с новыми значениями, протоколы можно делать сразу
         self.channels = data.channels_from_rows(data.rows_from_xlsx(path, overrides=written))
+        self.xlsx_path = out
         self.start.set(1)
         self.batch.set(min(len(self.channels), MAX_BATCH))
         self.recalc()
@@ -554,7 +576,9 @@ class App(tk.Tk):
                                   "пустые ячейки, а всё уже введённое оставляет как есть: пустая точка "
                                   "получает точное действительное значение, а недописанная строка (J есть, "
                                   "K..M пусто) - то же значение, что уже введено в этой строке. Погрешность "
-                                  "таких каналов поэтому не меняется, ползунок на них не действует."),
+                                  "таких каналов поэтому не меняется, ползунок на них не действует. "
+                                  "Когда все измерения заполнены, Magic предложит заполнить их заново "
+                                  "модельными значениями в отдельной копии."),
         ("4", "Рассчитать", "Пересчитывает все каналы заново. При открытии Excel расчёт идёт сам, "
                             "поэтому кнопка нужна, когда вы поменяли что-то в «Настройках» (число "
                             "измерений, ПИП или допуск по умолчанию) или исправили Excel и хотите "
