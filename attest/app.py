@@ -69,15 +69,36 @@ def readonly_text(root, text):
 
 def enable_entry_paste(entry):
     """Обеспечивает стандартные команды буфера обмена в полях документов."""
-    def edit_event(event_name):
-        def handler(_event=None):
-            entry.event_generate(event_name)
+    def paste(_event=None):
+        try:
+            value = entry.clipboard_get()
+        except tk.TclError:
             return "break"
-        return handler
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            start = end = entry.index("insert")
+        entry.delete(start, end)
+        entry.insert(start, value)
+        return "break"
 
-    paste = edit_event("<<Paste>>")
-    copy = edit_event("<<Copy>>")
-    cut = edit_event("<<Cut>>")
+    def copy(_event=None):
+        try:
+            value = entry.selection_get()
+        except tk.TclError:
+            return "break"
+        entry.clipboard_clear()
+        entry.clipboard_append(value)
+        return "break"
+
+    def cut(_event=None):
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            return "break"
+        copy()
+        entry.delete(start, end)
+        return "break"
 
     for sequence in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
         entry.bind(sequence, paste, add="+")
